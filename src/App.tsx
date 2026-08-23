@@ -210,6 +210,7 @@ export default function App() {
     setAvisoSinResultadosSup('');
   }
 
+  // 🛠️ CORRECCIÓN 1: Restaurada la asignación automática de valores nutricionales al seleccionar un producto del buscador
   function seleccionarProductoOFF(prod: ProductoOFF) {
     const marca = prod.brands ? ` (${prod.brands})` : '';
     const superm = prod.stores ? ` [${prod.stores}]` : (supermercadoSeleccionado !== 'Todos los supermercados' ? ` [${supermercadoSeleccionado}]` : '');
@@ -221,9 +222,13 @@ export default function App() {
       setNuevosIngredientes(prev => `${prev}, ${nombreCompleto}: 100g`);
     }
 
-    if (prod.nutriments?.['energy-kcal_100g'] !== undefined) setNuevasCalorias(Math.round(prod.nutriments['energy-kcal_100g']));
-    if (prod.nutriments?.sugars_100g !== undefined) setNuevoAzucar(Number(prod.nutriments.sugars_100g.toFixed(1)));
-    if (prod.nutriments?.salt_100g !== undefined) setNuevaSal(Number(prod.nutriments.salt_100g.toFixed(1)));
+    const kcal = prod.nutriments?.['energy-kcal_100g'];
+    const azucar = prod.nutriments?.sugars_100g;
+    const sal = prod.nutriments?.salt_100g;
+
+    if (kcal !== undefined) setNuevasCalorias(Math.round(kcal));
+    if (azucar !== undefined) setNuevoAzucar(Number(azucar.toFixed(1)));
+    if (sal !== undefined) setNuevaSal(Number(sal.toFixed(1)));
 
     limpiarBusqueda();
   }
@@ -250,9 +255,7 @@ export default function App() {
         .select()
         .single();
 
-      if (error) {
-        throw error; // Esto lanzará el error para que lo veas
-      }
+      if (error) throw error;
 
       if (data) {
         setDietas(prev => [...prev, data]);
@@ -471,6 +474,7 @@ export default function App() {
         }
       }
 
+      // 🛠️ CORRECCIÓN 2: Gestión robusta de ingredientes y su vinculación con el usuario para que no desaparezcan
       if (nuevosIngredientes.trim() && recetaId) {
         const listaItems = nuevosIngredientes.split(',').map(i => i.trim()).filter(Boolean);
 
@@ -486,6 +490,7 @@ export default function App() {
 
           ingNombre = ingNombre.toLowerCase();
 
+          // Buscar ingrediente existente
           let { data: ingExistente } = await supabase
             .from('ingredientes')
             .select('id')
@@ -501,7 +506,9 @@ export default function App() {
               .select()
               .single();
 
-            if (!ingError && nuevoIng) ingId = nuevoIng.id;
+            if (!ingError && nuevoIng) {
+              ingId = nuevoIng.id;
+            }
           }
 
           if (ingId) {
@@ -840,9 +847,12 @@ export default function App() {
                 <div style={{ marginTop: '10px', backgroundColor: '#FFF', borderRadius: '6px', border: '1px solid #C4B5FD', maxHeight: '200px', overflowY: 'auto' }}>
                   {resultadosOFF.map((prod, index) => (
                     <div key={prod.code || index} onClick={() => seleccionarProductoOFF(prod)} style={{ padding: '8px', borderBottom: '1px solid #F3E8FF', cursor: 'pointer', fontSize: '12px' }}>
-                      <strong style={{ color: '#4C1D95' }}>{prod.product_name || 'Producto'}</strong>
-                      {prod.brands && <span style={{ color: '#6B7280' }}> - {prod.brands}</span>}
-                      {prod.stores && <span style={{ color: '#059669', fontWeight: 'bold' }}> [{prod.stores}]</span>}
+                      <strong style={{ color: '#4C1D95' }}>{prod.product_name || 'Producto sin nombre'}</strong>
+                      {prod.brands && <span style={{ color: '#6B7280' }}> - Marca: {prod.brands}</span>}
+                      {prod.stores && <span style={{ color: '#059669', fontWeight: 'bold' }}> ({prod.stores})</span>}
+                      <div style={{ fontSize: '11px', color: '#6D28D9', marginTop: '2px' }}>
+                        🔥 {prod.nutriments?.['energy-kcal_100g'] ?? 0} kcal | 🍯 {prod.nutriments?.sugars_100g ?? 0}g az. | 🧂 {prod.nutriments?.salt_100g ?? 0}g sal
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -852,33 +862,42 @@ export default function App() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', backgroundColor: '#EDE9FE', padding: '10px', borderRadius: '6px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#5B21B6', marginBottom: '2px' }}>🔥 Calorías (100g)</label>
-                <input type="number" min="0" value={nuevasCalorias} onChange={e => setNuevasCalorias(e.target.value === '' ? '' : Number(e.target.value))} placeholder="kcal" style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #DDD6FE', fontSize: '12px', boxSizing: 'border-box' }} />
+                <input type="number" min="0" value={nuevasCalorias} onChange={e => setNuevasCalorias(e.target.value === '' ? '' : Number(e.target.value))} placeholder="kcal" style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #DDD6FE', boxSizing: 'border-box', fontSize: '12px' }} />
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#5B21B6', marginBottom: '2px' }}>🍯 Azúcar (100g)</label>
-                <input type="number" step="0.1" min="0" value={nuevoAzucar} onChange={e => setNuevoAzucar(e.target.value === '' ? '' : Number(e.target.value))} placeholder="g" style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #DDD6FE', fontSize: '12px', boxSizing: 'border-box' }} />
+                <input type="number" step="0.1" min="0" value={nuevoAzucar} onChange={e => setNuevoAzucar(e.target.value === '' ? '' : Number(e.target.value))} placeholder="g" style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #DDD6FE', boxSizing: 'border-box', fontSize: '12px' }} />
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#5B21B6', marginBottom: '2px' }}>🧂 Sal (100g)</label>
-                <input type="number" step="0.1" min="0" value={nuevaSal} onChange={e => setNuevaSal(e.target.value === '' ? '' : Number(e.target.value))} placeholder="g" style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #DDD6FE', fontSize: '12px', boxSizing: 'border-box' }} />
+                <input type="number" step="0.1" min="0" value={nuevaSal} onChange={e => setNuevaSal(e.target.value === '' ? '' : Number(e.target.value))} placeholder="g" style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #DDD6FE', boxSizing: 'border-box', fontSize: '12px' }} />
               </div>
             </div>
 
             <div>
-              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#4C1D95', display: 'block', marginBottom: '4px' }}>Ingredientes (Formato: Ingrediente: Cantidad):</label>
-              <input type="text" value={nuevosIngredientes} onChange={e => setNuevosIngredientes(e.target.value)} placeholder="Ej: patatas: 200g, huevos: 3" style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #DDD6FE', boxSizing: 'border-box' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#4C1D95' }}>Ingredientes y Cantidades:</label>
+                <span style={{ fontSize: '11px', color: '#6D28D9', backgroundColor: '#DDD6FE', padding: '2px 8px', borderRadius: '12px', fontWeight: '500' }}>
+                  Formato: <strong style={{ color: '#4C1D95' }}>Ingrediente: Cantidad</strong>
+                </span>
+              </div>
+              <input type="text" value={nuevosIngredientes} onChange={e => setNuevosIngredientes(e.target.value)} placeholder="Ej: patatas: 200g, huevos: 3 unidades" style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #DDD6FE', boxSizing: 'border-box' }} />
             </div>
 
             <div>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', color: '#4C1D95' }}>Pasos de preparación:</label>
-              <textarea rows={3} value={nuevosPasos} onChange={e => setNuevosPasos(e.target.value)} placeholder="Pasos..." style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #DDD6FE', boxSizing: 'border-box' }} />
+              <textarea rows={3} value={nuevosPasos} onChange={e => setNuevosPasos(e.target.value)} placeholder="Escribe la preparación..." style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #DDD6FE', boxSizing: 'border-box', fontFamily: 'sans-serif' }} />
             </div>
 
             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
               <button type="submit" disabled={guardandoReceta} style={{ flex: 1, backgroundColor: guardandoReceta ? '#9CA3AF' : '#7C3AED', color: '#fff', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
                 {guardandoReceta ? 'Guardando...' : (modoEdicionId ? '💾 Guardar Cambios' : '💾 Guardar Receta')}
               </button>
-              {modoEdicionId && <button type="button" onClick={() => { setMostrarFormulario(false); setModoEdicionId(null); }} style={{ backgroundColor: '#E5E7EB', color: '#374151', border: 'none', padding: '10px 14px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Cancelar</button>}
+              {modoEdicionId && (
+                <button type="button" onClick={() => { setMostrarFormulario(false); setModoEdicionId(null); }} style={{ backgroundColor: '#E5E7EB', color: '#374151', border: 'none', padding: '10px 14px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  Cancelar
+                </button>
+              )}
             </div>
           </div>
         </form>
@@ -887,23 +906,33 @@ export default function App() {
       {mostrarLista && (
         <div style={{ border: '2px solid #10B981', borderRadius: '10px', padding: '14px 16px', backgroundColor: '#ECFDF5', marginBottom: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ margin: 0, fontSize: '17px', color: '#065F46' }}>🛒 Lista de la Compra ({totalmenteResueltos}/{listaCompra.length})</h2>
+            <h2 style={{ margin: 0, fontSize: '17px', color: '#065F46' }}>
+              🛒 Lista de la Compra ({totalmenteResueltos}/{listaCompra.length} resueltos)
+            </h2>
             <div style={{ display: 'flex', gap: '6px' }}>
-              <button onClick={() => setListaMinimizada(!listaMinimizada)} style={{ background: '#A7F3D0', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '12px', color: '#064E3B', fontWeight: 'bold' }}>{listaMinimizada ? '🔽 Mostrar' : '🔼 Minimizar'}</button>
+              <button onClick={() => setListaMinimizada(!listaMinimizada)} style={{ background: '#A7F3D0', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '12px', color: '#064E3B', fontWeight: 'bold' }}>
+                {listaMinimizada ? '🔽 Mostrar' : '🔼 Minimizar'}
+              </button>
               <button onClick={() => setMostrarLista(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: '#047857' }}>✖</button>
             </div>
           </div>
 
           {!listaMinimizada && (
             <div style={{ marginTop: '12px' }}>
-              {cargandoCompra ? <p style={{ margin: 0, color: '#047857' }}>Calculando...</p> : listaCompra.length === 0 ? <p style={{ margin: 0, color: '#047857' }}>Sin ingredientes.</p> : (
+              {cargandoCompra ? (
+                <p style={{ margin: 0, color: '#047857' }}>Calculando cantidades según comensales...</p>
+              ) : listaCompra.length === 0 ? (
+                <p style={{ margin: 0, color: '#047857' }}>No se encontraron ingredientes para las recetas de esta semana.</p>
+              ) : (
                 <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   {listaCompra.map((item, idx) => (
                     <li key={idx} style={{ fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', padding: '6px 8px', borderRadius: '6px', border: '1px solid #D1FAE5' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
                         <input type="checkbox" checked={item.comprado} onChange={() => toggleComprado(idx)} style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: '#10B981' }} />
-                        <span style={{ textDecoration: (item.comprado || item.enCasa) ? 'line-through' : 'none', color: item.comprado ? '#10B981' : item.enCasa ? '#6B7280' : '#064E3B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {item.nombre} {item.cantidadTotal !== null && `(${item.cantidadTotal})`} {item.unidad}
+                        <span style={{ textDecoration: (item.comprado || item.enCasa) ? 'line-through' : 'none', color: item.comprado ? '#10B981' : item.enCasa ? '#6B7280' : '#064E3B', fontWeight: item.enCasa ? 'normal' : '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {item.nombre}
+                          {item.cantidadTotal !== null && <strong style={{ marginLeft: '4px', color: '#047857' }}>({item.cantidadTotal})</strong>}
+                          {item.unidad && <span style={{ fontSize: '11px', color: '#059669', marginLeft: '3px' }}>{item.unidad}</span>}
                         </span>
                       </div>
                       <button onClick={() => toggleEnCasa(idx)} style={{ background: item.enCasa ? '#E5E7EB' : '#F3F4F6', border: '1px solid #D1D5DB', borderRadius: '4px', padding: '2px 5px', fontSize: '11px', cursor: 'pointer' }}>🏠</button>
@@ -925,45 +954,70 @@ export default function App() {
           </div>
 
           <h2 style={{ margin: '0 120px 4px 0', fontSize: '18px', color: '#312E81' }}>📖 {recetaSeleccionada.nombre}</h2>
-          <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#4338CA', textTransform: 'uppercase', fontWeight: 'bold' }}>Categoría: {recetaSeleccionada.categoria}</p>
+          <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#4338CA', textTransform: 'uppercase', fontWeight: 'bold' }}>Categoría: {recetaSeleccionada.categoria || 'Sin especificación'}</p>
           
           <div style={{ display: 'flex', gap: '12px', backgroundColor: '#E0E7FF', padding: '8px 12px', borderRadius: '6px', marginBottom: '12px', fontSize: '12px', fontWeight: 'bold', color: '#3730A3', flexWrap: 'wrap' }}>
-            <span>🔥 {recetaSeleccionada.calorias || 0} kcal</span>
-            <span>🍯 {recetaSeleccionada.azucar_g || 0}g az.</span>
-            <span>🧂 {recetaSeleccionada.sal_g || 0}g sal</span>
+            <span>🔥 {recetaSeleccionada.calorias || 0} kcal (100g)</span>
+            <span>🍯 {recetaSeleccionada.azucar_g || 0}g azúcar (100g)</span>
+            <span>🧂 {recetaSeleccionada.sal_g || 0}g sal (100g)</span>
           </div>
 
           <div style={{ marginBottom: '12px' }}>
-            <strong style={{ fontSize: '14px', color: '#1E1B4B' }}>🥕 Ingredientes:</strong>
-            {cargandoIngredientesReceta ? <p style={{ margin: '2px 0', fontSize: '13px' }}>Cargando...</p> : (
+            <strong style={{ fontSize: '14px', color: '#1E1B4B' }}>🥕 Ingredientes (base por persona):</strong>
+            {cargandoIngredientesReceta ? (
+              <p style={{ margin: '2px 0', fontSize: '13px', color: '#6366F1' }}>Cargando ingredientes...</p>
+            ) : ingredientesReceta.length === 0 ? (
+              <p style={{ margin: '2px 0', fontSize: '13px', color: '#6B7280' }}>Sin ingredientes asignados.</p>
+            ) : (
               <ul style={{ margin: '4px 0 0 0', paddingLeft: '18px', fontSize: '13px', color: '#374151' }}>
-                {ingredientesReceta.map((ing, i) => <li key={i}>{ing.nombre} {ing.cantidad ? `- ${ing.cantidad}` : ''}</li>)}
+                {ingredientesReceta.map((ing, i) => (
+                  <li key={i}>{ing.nombre} {ing.cantidad ? `- ${ing.cantidad}` : ''}</li>
+                ))}
               </ul>
             )}
           </div>
-          <div>
-            <strong>📝 Pasos:</strong>
-            <p style={{ margin: '4px 0 0 0', whiteSpace: 'pre-line', color: '#374151', fontSize: '13px' }}>{recetaSeleccionada.pasos || 'Sin pasos.'}</p>
+          <div style={{ fontSize: '14px', color: '#1E1B4B', lineHeight: '1.5' }}>
+            <strong>📝 Pasos de preparación:</strong>
+            <p style={{ margin: '4px 0 0 0', whiteSpace: 'pre-line', color: '#374151', fontSize: '13px' }}>{recetaSeleccionada.pasos || 'No se han añadido pasos para esta receta.'}</p>
           </div>
         </div>
       )}
 
-      {cargando ? <p>Cargando...</p> : recetas.length < MINIMO_RECETAS ? (
+      {cargando ? (
+        <p>Cargando recetas desde Supabase...</p>
+      ) : recetas.length < MINIMO_RECETAS ? (
         <div style={{ border: '2px dashed #F59E0B', backgroundColor: '#FEF3C7', borderRadius: '12px', padding: '24px', textAlign: 'center' }}>
           <h3 style={{ margin: '0 0 8px 0', color: '#B45309', fontSize: '18px' }}>⚡ Dieta en construcción</h3>
-          <p style={{ margin: '0 0 16px 0', fontSize: '14px', color: '#92400E' }}>Has añadido <strong>{recetas.length}</strong> de las <strong>{MINIMO_RECETAS}</strong> recetas necesarias.</p>
+          <p style={{ margin: '0 0 16px 0', fontSize: '14px', color: '#92400E', lineHeight: '1.4' }}>
+            Has añadido <strong>{recetas.length}</strong> de las <strong>{MINIMO_RECETAS}</strong> recetas necesarias para poder generar un menú semanal completo.
+          </p>
           
-          <button onClick={() => { setModoEdicionId(null); setNuevoNombre(''); setNuevaCategoria('primero'); setNuevosPasos(''); setNuevosIngredientes(''); setNuevasCalorias(''); setNuevoAzucar(''); setNuevaSal(''); setMostrarFormulario(true); }} style={{ backgroundColor: '#D97706', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px', marginBottom: '20px' }}>
+          <button 
+            onClick={() => {
+              setModoEdicionId(null);
+              setNuevoNombre('');
+              setNuevaCategoria('primero');
+              setNuevosPasos('');
+              setNuevosIngredientes('');
+              setNuevasCalorias('');
+              setNuevoAzucar('');
+              setNuevaSal('');
+              setMostrarFormulario(true);
+            }}
+            style={{ backgroundColor: '#D97706', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px', marginBottom: '20px' }}
+          >
             ➕ Añadir {MINIMO_RECETAS - recetas.length} receta(s) más
           </button>
 
           {recetas.length > 0 && (
             <div style={{ textAlign: 'left', backgroundColor: '#FFF', borderRadius: '8px', padding: '12px 16px', border: '1px solid #FCD34D' }}>
-              <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#78350F', display: 'block', marginBottom: '8px' }}>Recetas actuales:</span>
+              <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#78350F', display: 'block', marginBottom: '8px' }}>Recetas guardadas en esta dieta:</span>
               <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {recetas.map(r => (
                   <li key={r.id} style={{ fontSize: '13px', color: '#451A03', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFFBEB', padding: '6px 8px', borderRadius: '4px', border: '1px solid #FDE68A' }}>
-                    <span onClick={() => verDetalleReceta(r)} style={{ cursor: 'pointer', textDecoration: 'underline' }}>{r.nombre} <span style={{ fontSize: '11px', color: '#92400E' }}>({r.categoria})</span></span>
+                    <span onClick={() => verDetalleReceta(r)} style={{ cursor: 'pointer', textDecoration: 'underline' }}>
+                      {r.nombre} <span style={{ fontSize: '11px', color: '#92400E' }}>({r.categoria})</span>
+                    </span>
                     <div style={{ display: 'flex', gap: '4px' }}>
                       <button onClick={(e) => abrirEditorReceta(r, e)} style={{ backgroundColor: '#4F46E5', color: '#FFF', border: 'none', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>Editar</button>
                       <button onClick={(e) => eliminarReceta(r.id, r.nombre, e)} style={{ backgroundColor: '#EF4444', color: '#FFF', border: 'none', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>Delete</button>
@@ -982,17 +1036,17 @@ export default function App() {
               <div key={item.dia} style={{ border: '1px solid #e5e7eb', borderRadius: '10px', padding: '14px', backgroundColor: '#fff' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f3f4f6', paddingBottom: '6px', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
                   <h3 style={{ margin: 0, color: '#1f2937' }}>{item.dia}</h3>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', gap: '6px', fontSize: '11px', fontWeight: 'bold' }}>
-                      <span style={{ backgroundColor: '#FEF3C7', color: '#92400E', padding: '3px 8px', borderRadius: '6px' }}>🔥 {nutricion.calorias} kcal</span>
-                      <span style={{ backgroundColor: '#F3E8FF', color: '#6B21A8', padding: '3px 8px', borderRadius: '6px' }}>🍯 {nutricion.azucar}g az.</span>
-                      <span style={{ backgroundColor: '#E0F2FE', color: '#0369A1', padding: '3px 8px', borderRadius: '6px' }}>🧂 {nutricion.sal}g sal</span>
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 'bold', backgroundColor: '#FEF3C7', color: '#92400E', padding: '3px 8px', borderRadius: '6px' }}>
+                      🔥 {nutricion.calorias} kcal | 🍯 {nutricion.azucar}g az. | 🧂 {nutricion.sal}g sal
                     </div>
+
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#F3F4F6', padding: '2px 8px', borderRadius: '20px' }}>
                       <span style={{ fontSize: '12px', color: '#4B5563', fontWeight: 'bold' }}>👤</span>
-                      <button onClick={() => cambiarComensales(indexDia, item.comensales - 1)} style={{ border: 'none', background: '#E5E7EB', borderRadius: '50%', width: '20px', height: '20px', cursor: 'pointer', fontWeight: 'bold' }}>-</button>
+                      <button onClick={() => cambiarComensales(indexDia, item.comensales - 1)} style={{ border: 'none', background: '#E5E7EB', borderRadius: '50%', width: '20px', height: '20px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>-</button>
                       <span style={{ fontSize: '13px', fontWeight: 'bold', minWidth: '14px', textAlign: 'center' }}>{item.comensales}</span>
-                      <button onClick={() => cambiarComensales(indexDia, item.comensales + 1)} style={{ border: 'none', background: '#E5E7EB', borderRadius: '50%', width: '20px', height: '20px', cursor: 'pointer', fontWeight: 'bold' }}>+</button>
+                      <button onClick={() => cambiarComensales(indexDia, item.comensales + 1)} style={{ border: 'none', background: '#E5E7EB', borderRadius: '50%', width: '20px', height: '20px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>+</button>
                     </div>
                   </div>
                 </div>
@@ -1001,17 +1055,26 @@ export default function App() {
                   <div style={{ backgroundColor: '#f9fafb', padding: '10px', borderRadius: '6px' }}>
                     <h4 style={{ margin: '0 0 6px 0', fontSize: '12px', color: '#6b7280', textTransform: 'uppercase' }}>☀️ Comida</h4>
                     {item.esUnico ? (
-                      <p onClick={() => item.platoUnico && verDetalleReceta(item.platoUnico)} style={{ margin: '2px 0', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', color: '#4F46E5' }}>🍲 {item.platoUnico?.nombre}</p>
+                      <p onClick={() => item.platoUnico && verDetalleReceta(item.platoUnico)} style={{ margin: '2px 0', fontSize: '13px', cursor: item.platoUnico ? 'pointer' : 'default', textDecoration: item.platoUnico ? 'underline' : 'none', color: item.platoUnico ? '#4F46E5' : '#333' }}>
+                        🍲 <strong>Plato Único:</strong> {item.platoUnico?.nombre || 'Sin asignar'}
+                      </p>
                     ) : (
                       <>
-                        <p onClick={() => item.primero && verDetalleReceta(item.primero)} style={{ margin: '2px 0', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', color: '#4F46E5' }}><strong>1.º:</strong> {item.primero?.nombre}</p>
-                        <p onClick={() => item.segundo && verDetalleReceta(item.segundo)} style={{ margin: '2px 0', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', color: '#4F46E5' }}><strong>2.º:</strong> {item.segundo?.nombre}</p>
+                        <p onClick={() => item.primero && verDetalleReceta(item.primero)} style={{ margin: '2px 0', fontSize: '13px', cursor: item.primero ? 'pointer' : 'default', textDecoration: item.primero ? 'underline' : 'none', color: item.primero ? '#4F46E5' : '#333' }}>
+                          <strong>1.º:</strong> {item.primero?.nombre || 'Sin asignar'}
+                        </p>
+                        <p onClick={() => item.segundo && verDetalleReceta(item.segundo)} style={{ margin: '2px 0', fontSize: '13px', cursor: item.segundo ? 'pointer' : 'default', textDecoration: item.segundo ? 'underline' : 'none', color: item.segundo ? '#4F46E5' : '#333' }}>
+                          <strong>2.º:</strong> {item.segundo?.nombre || 'Sin asignar'}
+                        </p>
                       </>
                     )}
                   </div>
+
                   <div style={{ backgroundColor: '#f0fdf4', padding: '10px', borderRadius: '6px' }}>
                     <h4 style={{ margin: '0 0 6px 0', fontSize: '12px', color: '#166534', textTransform: 'uppercase' }}>🌙 Cena</h4>
-                    <p onClick={() => item.cena && verDetalleReceta(item.cena)} style={{ margin: 0, fontSize: '13px', color: '#15803d', cursor: 'pointer', textDecoration: 'underline' }}>🍽️ {item.cena?.nombre}</p>
+                    <p onClick={() => item.cena && verDetalleReceta(item.cena)} style={{ margin: 0, fontSize: '13px', color: item.cena ? '#15803d' : '#333', cursor: item.cena ? 'pointer' : 'default', textDecoration: item.cena ? 'underline' : 'none' }}>
+                      🍽️ {item.cena?.nombre || 'Sin asignar'}
+                    </p>
                   </div>
                 </div>
               </div>
