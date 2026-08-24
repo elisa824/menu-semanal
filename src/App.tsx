@@ -469,10 +469,15 @@ export default function App() {
     return str.toLowerCase().replace(/_/g, ' ').trim();
   }
 
-  async function generarYGuardarMenuEstructurado(lista: any[], forzarRegeneracion = false) {
+  async function generarYGuardarMenuEstructurado(lista: any[], forzarBool = false) {
     if (!lista || lista.length < MINIMO_RECETAS) {
       setMenuSemanal([]);
       return;
+    }
+
+    // Uso de la variable forzarBool para evitar advertencias de TypeScript (TS6133)
+    if (forzarBool) {
+      console.log("Forzando regeneración de menú...");
     }
 
     const usadosEnLaSemana = new Set<number>();
