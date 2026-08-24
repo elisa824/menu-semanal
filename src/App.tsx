@@ -438,7 +438,20 @@ export default function App() {
       if (!error && menuGuardado && menuGuardado.length > 0) {
         const mapaRecetas = new Map(listaRecetas.map(r => [r.id, r]));
         
-        const menuMapeado: DiaMenu[] = menuGuardado.map(row => {
+        const menuMapeado: DiaMenu[] = DIAS_SEMANA.map(dia => {
+          const row = menuGuardado.find(r => r.dia === dia);
+          if (!row) {
+            // Si falta algún día por cualquier motivo, devolvemos una estructura vacía o por defecto
+            return {
+              dia,
+              comensales: 1,
+              esUnico: false,
+              primero: null,
+              segundo: null,
+              platoUnico: null,
+              cena: null
+            };
+          }
           return {
             dia: row.dia,
             comensales: row.comensales ?? 1,
@@ -457,10 +470,10 @@ export default function App() {
       }
 
       // Si no hay menú guardado previo, se genera uno nuevo y se guarda
-      generarYGuardarMenuEstructurado(listaRecetas);
+      await generarYGuardarMenuEstructurado(listaRecetas);
     } catch (e) {
       console.error('Error al recuperar menú guardado:', e);
-      generarYGuardarMenuEstructurado(listaRecetas);
+      await generarYGuardarMenuEstructurado(listaRecetas);
     }
   }
 
@@ -475,7 +488,6 @@ export default function App() {
       return;
     }
 
-    // Uso de la variable forzarBool para evitar advertencias de TypeScript (TS6133)
     if (forzarBool) {
       console.log("Forzando regeneración de menú...");
     }
