@@ -144,7 +144,7 @@ export default function App() {
 
   useEffect(() => {
     if (session) {
-      obtenerRecetasYMenu();
+      obtenerRecetas();
     }
   }, [dietaSeleccionada, session]);
 
@@ -334,7 +334,7 @@ export default function App() {
     try {
       const { error } = await supabase.from('recetas').delete().eq('id', id);
       if (!error) {
-        await obtenerRecetasYMenu();
+        await obtenerRecetas();
       }
     } catch (e) {
       console.error('Error al eliminar la receta:', e);
@@ -379,7 +379,7 @@ export default function App() {
     }
   }
 
-  async function obtenerRecetasYMenu() {
+  async function obtenerRecetas() {
     if (!session) return;
     setCargando(true);
     try {
@@ -406,7 +406,7 @@ export default function App() {
       setRecetas(dataRecetas);
       
       if (dataRecetas.length >= MINIMO_RECETAS) {
-        await cargarMenuGuardadoOGenerar(dataRecetas);
+        generarMenuEstructurado(dataRecetas);
       } else {
         setMenuSemanal([]);
       }
@@ -417,59 +417,12 @@ export default function App() {
     }
   }
 
-  async function cargarMenuGuardadoOGenerar(listaRecetas: any[]) {
-    if (!session) return;
-    try {
-      const dietaIdFiltro = dietaSeleccionada ? dietaSeleccionada.id : null;
-      
-      let query = supabase
-        .from('menu_semanal_usuario')
-        .select('*')
-        .eq('user_id', session.user.id);
-
-      if (dietaIdFiltro) {
-        query = query.eq('dieta_id', dietaIdFiltro);
-      } else {
-        query = query.is('dieta_id', null);
-      }
-
-      const { data: menuGuardado, error } = await query;
-
-      if (!error && menuGuardado && menuGuardado.length > 0) {
-        const mapaRecetas = new Map(listaRecetas.map(r => [r.id, r]));
-        
-        const menuMapeado: DiaMenu[] = menuGuardado.map(row => {
-          return {
-            dia: row.dia,
-            comensales: row.comensales ?? 1,
-            esUnico: row.es_unico ?? false,
-            primero: row.primero_id ? mapaRecetas.get(row.primero_id) || null : null,
-            segundo: row.segundo_id ? mapaRecetas.get(row.segundo_id) || null : null,
-            platoUnico: row.plato_unico_id ? mapaRecetas.get(row.plato_unico_id) || null : null,
-            cena: row.cena_id ? mapaRecetas.get(row.cena_id) || null : null,
-          };
-        });
-
-        if (menuMapeado.length > 0) {
-          setMenuSemanal(menuMapeado);
-          return;
-        }
-      }
-
-      // Si no hay menú guardado previo, se genera uno nuevo y se guarda
-      generarYGuardarMenuEstructurado(listaRecetas);
-    } catch (e) {
-      console.error('Error al recuperar menú guardado:', e);
-      generarYGuardarMenuEstructurado(listaRecetas);
-    }
-  }
-
   function norm(str: any) {
     if (!str || typeof str !== 'string') return '';
     return str.toLowerCase().replace(/_/g, ' ').trim();
   }
 
-  async function generarYGuardarMenuEstructurado(lista: any[], forzarRegeneracion = false) {
+  function generarMenuEstructurado(lista: any[]) {
     if (!lista || lista.length < MINIMO_RECETAS) {
       setMenuSemanal([]);
       return;
@@ -504,66 +457,11 @@ export default function App() {
 
     setMenuSemanal(nuevoMenu);
     setTarjetaVolteada({});
-
-    if (session) {
-      try {
-        const dietaIdFiltro = dietaSeleccionada ? dietaSeleccionada.id : null;
-
-        let deleteQuery = supabase
-          .from('menu_semanal_usuario')
-          .delete()
-          .eq('user_id', session.user.id);
-
-        if (dietaIdFiltro) {
-          deleteQuery = deleteQuery.eq('dieta_id', dietaIdFiltro);
-        } else {
-          deleteQuery = deleteQuery.is('dieta_id', null);
-        }
-
-        await deleteQuery;
-
-        const payload = nuevoMenu.map(d => ({
-          user_id: session.user.id,
-          dieta_id: dietaIdFiltro,
-          dia: d.dia,
-          comensales: d.comensales,
-          es_unico: d.esUnico,
-          primero_id: d.primero?.id || null,
-          segundo_id: d.segundo?.id || null,
-          plato_unico_id: d.platoUnico?.id || null,
-          cena_id: d.cena?.id || null
-        }));
-
-        await supabase.from('menu_semanal_usuario').insert(payload);
-      } catch (err) {
-        console.error('Error al guardar el menú en Supabase:', err);
-      }
-    }
   }
 
-  async function cambiarComensales(indexDia: number, cantidad: number) {
+  function cambiarComensales(indexDia: number, cantidad: number) {
     const num = Math.max(1, cantidad);
-    const menuActualizado = menuSemanal.map((dia, idx) => idx === indexDia ? { ...dia, comensales: num } : dia);
-    setMenuSemanal(menuActualizado);
-
-    if (session) {
-      const itemDia = menuActualizado[indexDia];
-      const dietaIdFiltro = dietaSeleccionada ? dietaSeleccionada.id : null;
-
-      let query = supabase
-        .from('menu_semanal_usuario')
-        .update({ comensales: num })
-        .eq('user_id', session.user.id)
-        .eq('dia', itemDia.dia);
-
-      if (dietaIdFiltro) {
-        query = query.eq('dieta_id', dietaIdFiltro);
-      } else {
-        query = query.is('dieta_id', null);
-      }
-
-      await query;
-    }
+    setMenuSemanal(prev => prev.map((dia, idx) => idx === indexDia ? { ...dia, comensales: num } : dia));
   }
 
   async function guardarOActualizarReceta(e: React.FormEvent) {
@@ -670,7 +568,7 @@ export default function App() {
       limpiarBusqueda();
       setMostrarFormulario(false);
       
-      await obtenerRecetasYMenu();
+      await obtenerRecetas();
     } catch (err) {
       console.error('Error al guardar/actualizar receta:', err);
     } finally {
@@ -1027,7 +925,7 @@ export default function App() {
                   <button onClick={() => { setModoEdicionId(null); setNuevoNombre(''); setNuevaCategoria('primero'); setNuevosPasos(''); setNuevosIngredientes(''); setNuevasCalorias(''); setNuevoAzucar(''); setNuevaSal(''); setMostrarFormulario(!mostrarFormulario); }} style={{ backgroundColor: '#831843', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: 'pointer', fontSize: '13px', boxShadow: '0 2px 4px rgba(131, 24, 67, 0.2)' }}>
                     + Añadir Receta
                   </button>
-                  <button onClick={() => { if (recetas.length >= MINIMO_RECETAS) generarYGuardarMenuEstructurado(recetas, true); else obtenerRecetasYMenu(); }} disabled={cargando || recetas.length < MINIMO_RECETAS} style={{ backgroundColor: recetas.length < MINIMO_RECETAS ? '#D6D3D1' : '#D97706', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: recetas.length < MINIMO_RECETAS ? 'not-allowed' : 'pointer', fontSize: '13px', boxShadow: recetas.length >= MINIMO_RECETAS ? '0 2px 4px rgba(217, 119, 6, 0.25)' : 'none' }}>
+                  <button onClick={() => { if (recetas.length >= MINIMO_RECETAS) generarMenuEstructurado(recetas); else obtenerRecetas(); }} disabled={cargando || recetas.length < MINIMO_RECETAS} style={{ backgroundColor: recetas.length < MINIMO_RECETAS ? '#D6D3D1' : '#D97706', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: recetas.length < MINIMO_RECETAS ? 'not-allowed' : 'pointer', fontSize: '13px', boxShadow: recetas.length >= MINIMO_RECETAS ? '0 2px 4px rgba(217, 119, 6, 0.25)' : 'none' }}>
                     🎲 Regenerar
                   </button>
                   <button onClick={() => setMostrarSelectorCompra(!mostrarSelectorCompra)} disabled={cargando || menuSemanal.length === 0} style={{ backgroundColor: menuSemanal.length === 0 ? '#D6D3D1' : '#14532D', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: menuSemanal.length === 0 ? 'not-allowed' : 'pointer', fontSize: '13px', boxShadow: menuSemanal.length > 0 ? '0 2px 4px rgba(20, 83, 45, 0.25)' : 'none' }}>
