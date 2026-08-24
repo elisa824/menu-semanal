@@ -59,6 +59,7 @@ export default function App() {
   const [esRegistro, setEsRegistro] = useState(false);
   const [errorAuth, setErrorAuth] = useState('');
 
+  // Pestaña activa inferior: 'menu' | 'dietas' | 'sobre'
   const [pestanaActiva, setPestanaActiva] = useState<'menu' | 'dietas' | 'sobre'>('menu');
 
   const [recetas, setRecetas] = useState<any[]>([]);
@@ -75,6 +76,7 @@ export default function App() {
   const [mostrarLista, setMostrarLista] = useState(false);
   const [listaMinimizada, setListaMinimizada] = useState(false);
 
+  // Estados para selector de selección de lista de la compra (días y comidas)
   const [mostrarSelectorCompra, setMostrarSelectorCompra] = useState(false);
   const [seleccionDiasCompra, setSeleccionDiasCompra] = useState<{ [dia: string]: { comida: boolean; cena: boolean } }>({
     'Lunes': { comida: true, cena: true },
@@ -86,6 +88,7 @@ export default function App() {
     'Domingo': { comida: true, cena: true },
   });
 
+  // Tarjeta giratoria por día y receta seleccionada
   const [tarjetaVolteada, setTarjetaVolteada] = useState<{ [dia: string]: boolean }>({});
   const [recetaActivaDia, setRecetaActivaDia] = useState<{ [dia: string]: { receta: any; tipo: string } }>({});
   const [ingredientesRecetaDia, setIngredientesRecetaDia] = useState<any[]>([]);
@@ -272,8 +275,8 @@ export default function App() {
           nombre: row.nombre,
           cantidadTotal: row.cantidad_total,
           unidad: row.unidad || '',
-          comprado: row.comprado ?? false,
-          enCasa: row.en_casa ?? false
+          comprado: row.comprado,
+          enCasa: row.en_casa
         }));
         setListaCompra(itemsMapeados);
         setMostrarLista(true);
@@ -414,48 +417,46 @@ export default function App() {
     }
   }
 
-  async function cargarMenuGuardadoOGenerar(listaRecetas: any[], forzarRegeneracion = false) {
+  async function cargarMenuGuardadoOGenerar(listaRecetas: any[]) {
     if (!session) return;
     try {
       const dietaIdFiltro = dietaSeleccionada ? dietaSeleccionada.id : null;
       
-      if (!forzarRegeneracion) {
-        let query = supabase
-          .from('menu_semanal_usuario')
-          .select('*')
-          .eq('user_id', session.user.id);
+      let query = supabase
+        .from('menu_semanal_usuario')
+        .select('*')
+        .eq('user_id', session.user.id);
 
-        if (dietaIdFiltro) {
-          query = query.eq('dieta_id', dietaIdFiltro);
-        } else {
-          query = query.is('dieta_id', null);
-        }
+      if (dietaIdFiltro) {
+        query = query.eq('dieta_id', dietaIdFiltro);
+      } else {
+        query = query.is('dieta_id', null);
+      }
 
-        const { data: menuGuardado, error } = await query;
+      const { data: menuGuardado, error } = await query;
 
-        if (!error && menuGuardado && menuGuardado.length > 0) {
-          const mapaRecetas = new Map(listaRecetas.map(r => [r.id, r]));
-          
-          const menuMapeado: DiaMenu[] = menuGuardado.map(row => {
-            return {
-              dia: row.dia,
-              comensales: row.comensales ?? 1,
-              esUnico: row.es_unico ?? false,
-              primero: row.primero_id ? mapaRecetas.get(row.primero_id) || null : null,
-              segundo: row.segundo_id ? mapaRecetas.get(row.segundo_id) || null : null,
-              platoUnico: row.plato_unico_id ? mapaRecetas.get(row.plato_unico_id) || null : null,
-              cena: row.cena_id ? mapaRecetas.get(row.cena_id) || null : null,
-            };
-          });
+      if (!error && menuGuardado && menuGuardado.length > 0) {
+        const mapaRecetas = new Map(listaRecetas.map(r => [r.id, r]));
+        
+        const menuMapeado: DiaMenu[] = menuGuardado.map(row => {
+          return {
+            dia: row.dia,
+            comensales: row.comensales ?? 1,
+            esUnico: row.es_unico ?? false,
+            primero: row.primero_id ? mapaRecetas.get(row.primero_id) || null : null,
+            segundo: row.segundo_id ? mapaRecetas.get(row.segundo_id) || null : null,
+            platoUnico: row.plato_unico_id ? mapaRecetas.get(row.plato_unico_id) || null : null,
+            cena: row.cena_id ? mapaRecetas.get(row.cena_id) || null : null,
+          };
+        });
 
-          if (menuMapeado.length > 0) {
-            setMenuSemanal(menuMapeado);
-            return;
-          }
+        if (menuMapeado.length > 0) {
+          setMenuSemanal(menuMapeado);
+          return;
         }
       }
 
-      // Si no hay menú guardado o se solicita forzar, generamos uno nuevo y lo guardamos
+      // Si no hay menú guardado previo, se genera uno nuevo y se guarda
       generarYGuardarMenuEstructurado(listaRecetas);
     } catch (e) {
       console.error('Error al recuperar menú guardado:', e);
@@ -468,10 +469,14 @@ export default function App() {
     return str.toLowerCase().replace(/_/g, ' ').trim();
   }
 
-  async function generarYGuardarMenuEstructurado(lista: any[]) {
+  async function generarYGuardarMenuEstructurado(lista: any[], forzarBool = false) {
     if (!lista || lista.length < MINIMO_RECETAS) {
       setMenuSemanal([]);
       return;
+    }
+
+    if (forzarBool) {
+      console.log("Forzando regeneración de menú...");
     }
 
     const usadosEnLaSemana = new Set<number>();
@@ -899,7 +904,7 @@ export default function App() {
               {esRegistro ? 'Crea tu cuenta' : '¡Bienvenido a MenuKit!'}
             </h2>
             <p style={{ fontSize: '14px', color: '#78716C', margin: 0 }}>
-              {esRegistro ? 'Regístrate para guardar tus recetas y planes.' : 'Inicia sesión para acceder a tu menú semanal.'}
+              {esRegistro ? 'Regístrate para guardar tus recetas y planes.' : 'Inicia sesión para acceder à tu menú semanal.'}
             </p>
           </div>
 
@@ -935,6 +940,7 @@ export default function App() {
     <div style={{ minHeight: '100vh', backgroundColor: '#F5F2EB', padding: '24px 16px 80px 16px', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#2C2A29', boxSizing: 'border-box' }}>
       <div style={{ maxWidth: '720px', margin: '0 auto' }}>
         
+        {/* Barra superior de usuario */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFFFFF', padding: '10px 20px', borderRadius: '16px', marginBottom: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid #E6DFD3', fontSize: '13px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ position: 'relative', width: '36px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -959,6 +965,7 @@ export default function App() {
           <button onClick={cerrarSesion} style={{ background: '#FFF1F2', color: '#BE123C', border: '1px solid #FECDD3', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', transition: 'all 0.2s' }}>Cerrar sesión</button>
         </div>
 
+        {/* CONTENEDOR CON ANIMACIÓN DE TRANSICIÓN SUAVE ENTRE PANTALLAS */}
         <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
           <style>{`
             @keyframes fadeIn {
@@ -967,6 +974,7 @@ export default function App() {
             }
           `}</style>
 
+          {/* VISTAS PRINCIPALES SEGÚN PESTAÑA INFERIOR */}
           {pestanaActiva === 'sobre' ? (
             <div style={{ backgroundColor: '#FFFFFF', borderRadius: '20px', padding: '32px 24px', border: '1px solid #E6DFD3', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
               <h2 style={{ margin: '0 0 12px 0', fontSize: '20px', fontWeight: '800', color: '#2C2A29' }}>Sobre MenuKit</h2>
@@ -1010,6 +1018,7 @@ export default function App() {
             </div>
           ) : (
             <>
+              {/* Cabecera Principal y Botones de Acción */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div>
@@ -1022,7 +1031,7 @@ export default function App() {
                   <button onClick={() => { setModoEdicionId(null); setNuevoNombre(''); setNuevaCategoria('primero'); setNuevosPasos(''); setNuevosIngredientes(''); setNuevasCalorias(''); setNuevoAzucar(''); setNuevaSal(''); setMostrarFormulario(!mostrarFormulario); }} style={{ backgroundColor: '#831843', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: 'pointer', fontSize: '13px', boxShadow: '0 2px 4px rgba(131, 24, 67, 0.2)' }}>
                     + Añadir Receta
                   </button>
-                  <button onClick={() => { if (recetas.length >= MINIMO_RECETAS) cargarMenuGuardadoOGenerar(recetas, true); else obtenerRecetasYMenu(); }} disabled={cargando || recetas.length < MINIMO_RECETAS} style={{ backgroundColor: recetas.length < MINIMO_RECETAS ? '#D6D3D1' : '#D97706', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: recetas.length < MINIMO_RECETAS ? 'not-allowed' : 'pointer', fontSize: '13px', boxShadow: recetas.length >= MINIMO_RECETAS ? '0 2px 4px rgba(217, 119, 6, 0.25)' : 'none' }}>
+                  <button onClick={() => { if (recetas.length >= MINIMO_RECETAS) generarYGuardarMenuEstructurado(recetas, true); else obtenerRecetasYMenu(); }} disabled={cargando || recetas.length < MINIMO_RECETAS} style={{ backgroundColor: recetas.length < MINIMO_RECETAS ? '#D6D3D1' : '#D97706', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: recetas.length < MINIMO_RECETAS ? 'not-allowed' : 'pointer', fontSize: '13px', boxShadow: recetas.length >= MINIMO_RECETAS ? '0 2px 4px rgba(217, 119, 6, 0.25)' : 'none' }}>
                     🎲 Regenerar
                   </button>
                   <button onClick={() => setMostrarSelectorCompra(!mostrarSelectorCompra)} disabled={cargando || menuSemanal.length === 0} style={{ backgroundColor: menuSemanal.length === 0 ? '#D6D3D1' : '#14532D', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: menuSemanal.length === 0 ? 'not-allowed' : 'pointer', fontSize: '13px', boxShadow: menuSemanal.length > 0 ? '0 2px 4px rgba(20, 83, 45, 0.25)' : 'none' }}>
@@ -1031,6 +1040,7 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Selector de Días y Comidas para la Lista de la Compra */}
               {mostrarSelectorCompra && (
                 <div style={{ border: '1px solid #10B981', borderRadius: '20px', padding: '20px 24px', backgroundColor: '#ECFDF5', marginBottom: '24px', boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.05)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -1100,6 +1110,7 @@ export default function App() {
                 </div>
               )}
 
+              {/* Formulario de Receta */}
               {mostrarFormulario && (
                 <div style={{ border: '1px solid #D6D3D1', borderRadius: '20px', padding: '24px', backgroundColor: '#FFFFFF', marginBottom: '24px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -1202,6 +1213,7 @@ export default function App() {
                 </div>
               )}
 
+              {/* Lista de la Compra */}
               {mostrarLista && (
                 <div style={{ border: '1px solid #A7F3D0', borderRadius: '20px', padding: '20px 24px', backgroundColor: '#F0FDF4', marginBottom: '24px', boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.05)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1244,6 +1256,7 @@ export default function App() {
                 </div>
               )}
 
+              {/* Contenido Principal / Menú o Estado inicial */}
               {cargando ? (
                 <div style={{ textAlign: 'center', padding: '60px 0', color: '#78716C', fontWeight: '500' }}>Cargando recetas desde Supabase...</div>
               ) : recetas.length < MINIMO_RECETAS ? (
@@ -1309,6 +1322,7 @@ export default function App() {
                           boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02)'
                         }}>
                           
+                          {/* ANVERSO DE LA TARJETA (MENÚ DEL DÍA) */}
                           <div style={{
                             backfaceVisibility: 'hidden',
                             WebkitBackfaceVisibility: 'hidden',
@@ -1362,6 +1376,7 @@ export default function App() {
                             </div>
                           </div>
 
+                          {/* REVERSO DE LA TARJETA (DETALLES DE LA RECETA SELECCIONADA) */}
                           <div style={{
                             position: 'absolute',
                             top: 0,
@@ -1428,6 +1443,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* BARRA DE NAVEGACIÓN INFERIOR PERMANENTE */}
       <div style={{
         position: 'fixed',
         bottom: 0,
@@ -1443,6 +1459,7 @@ export default function App() {
         zIndex: 1000,
         boxShadow: '0 -4px 10px rgba(0,0,0,0.02)'
       }}>
+        {/* 1. Menú Semanal */}
         <button
           onClick={() => { setPestanaActiva('menu'); setTarjetaVolteada({}); }}
           style={{
@@ -1468,6 +1485,7 @@ export default function App() {
           Menú Semanal
         </button>
 
+        {/* 2. Mis Dietas */}
         <button
           onClick={() => setPestanaActiva('dietas')}
           style={{
@@ -1492,6 +1510,7 @@ export default function App() {
           Mis Dietas
         </button>
 
+        {/* 3. Sobre MenuKit */}
         <button
           onClick={() => setPestanaActiva('sobre')}
           style={{
