@@ -59,6 +59,7 @@ export default function App() {
   const [esRegistro, setEsRegistro] = useState(false);
   const [errorAuth, setErrorAuth] = useState('');
 
+  // Pestaña activa inferior: 'menu' | 'dietas' | 'sobre'
   const [pestanaActiva, setPestanaActiva] = useState<'menu' | 'dietas' | 'sobre'>('menu');
 
   const [recetas, setRecetas] = useState<any[]>([]);
@@ -75,6 +76,7 @@ export default function App() {
   const [mostrarLista, setMostrarLista] = useState(false);
   const [listaMinimizada, setListaMinimizada] = useState(false);
 
+  // Estados para selector de selección de lista de la compra (días y comidas)
   const [mostrarSelectorCompra, setMostrarSelectorCompra] = useState(false);
   const [seleccionDiasCompra, setSeleccionDiasCompra] = useState<{ [dia: string]: { comida: boolean; cena: boolean } }>({
     'Lunes': { comida: true, cena: true },
@@ -86,6 +88,7 @@ export default function App() {
     'Domingo': { comida: true, cena: true },
   });
 
+  // Tarjeta giratoria por día y receta seleccionada
   const [tarjetaVolteada, setTarjetaVolteada] = useState<{ [dia: string]: boolean }>({});
   const [recetaActivaDia, setRecetaActivaDia] = useState<{ [dia: string]: { receta: any; tipo: string } }>({});
   const [ingredientesRecetaDia, setIngredientesRecetaDia] = useState<any[]>([]);
@@ -133,13 +136,12 @@ export default function App() {
       setRecetas([]);
       setMenuSemanal([]);
       setDietaSeleccionada(null);
-      setListaCompra([]);
     }
   }, [session]);
 
   useEffect(() => {
     if (session) {
-      inicializarDatosUsuario();
+      obtenerRecetas();
     }
   }, [dietaSeleccionada, session]);
 
@@ -304,7 +306,7 @@ export default function App() {
     try {
       const { error } = await supabase.from('recetas').delete().eq('id', id);
       if (!error) {
-        await inicializarDatosUsuario();
+        await obtenerRecetas();
       }
     } catch (e) {
       console.error('Error al eliminar la receta:', e);
@@ -349,8 +351,7 @@ export default function App() {
     }
   }
 
-  // Inicializador que carga recetas y busca si ya hay un menú guardado en Supabase
-  async function inicializarDatosUsuario(forzarRegeneracion = false) {
+  async function obtenerRecetas() {
     if (!session) return;
     setCargando(true);
     try {
@@ -377,32 +378,9 @@ export default function App() {
       setRecetas(dataRecetas);
       
       if (dataRecetas.length >= MINIMO_RECETAS) {
-        const dietaIdFiltro = dietaSeleccionada ? dietaSeleccionada.id : null;
-        
-        // Consultar si ya existe un menú guardado en la base de datos para este usuario/dieta
-        let queryMenu = supabase.from('menus_guardados').select('*').eq('user_id', session.user.id);
-        if (dietaIdFiltro) {
-          queryMenu = queryMenu.eq('dieta_id', dietaIdFiltro);
-        } else {
-          queryMenu = queryMenu.is('dieta_id', null);
-        }
-
-        const { data: menuGuardadoData } = await queryMenu.maybeSingle();
-
-        if (menuGuardadoData && menuGuardadoData.contenido && !forzarRegeneracion) {
-          // Si existe menú guardado y no se fuerza regeneración, lo restauramos exactamente igual
-          setMenuSemanal(menuGuardadoData.contenido);
-          if (menuGuardadoData.lista_compra) {
-            setListaCompra(menuGuardadoData.lista_compra);
-            if (menuGuardadoData.lista_compra.length > 0) setMostrarLista(true);
-          }
-        } else {
-          // Si no existe o se forzó regeneración, creamos uno nuevo y lo guardamos
-          generarMenuEstructurado(dataRecetas, true);
-        }
+        generarMenuEstructurado(dataRecetas);
       } else {
         setMenuSemanal([]);
-        setListaCompra([]);
       }
     } catch (e) {
       console.error(e);
@@ -416,37 +394,7 @@ export default function App() {
     return str.toLowerCase().replace(/_/g, ' ').trim();
   }
 
-  async function guardarMenuEnBD(nuevoMenu: DiaMenu[], nuevaListaCompra = listaCompra) {
-    if (!session) return;
-    try {
-      const dietaIdFiltro = dietaSeleccionada ? dietaSeleccionada.id : null;
-      
-      // Comprobar si existe registro previo
-      let queryCheck = supabase.from('menus_guardados').select('id').eq('user_id', session.user.id);
-      if (dietaIdFiltro) queryCheck = queryCheck.eq('dieta_id', dietaIdFiltro);
-      else queryCheck = queryCheck.is('dieta_id', null);
-
-      const { data: existente } = await queryCheck.maybeSingle();
-
-      const payload = {
-        user_id: session.user.id,
-        dieta_id: dietaIdFiltro,
-        contenido: nuevoMenu,
-        lista_compra: nuevaListaCompra,
-        updated_at: new Date()
-      };
-
-      if (existente?.id) {
-        await supabase.from('menus_guardados').update(payload).eq('id', existente.id);
-      } else {
-        await supabase.from('menus_guardados').insert([payload]);
-      }
-    } catch (err) {
-      console.error('Error al guardar menú en BD:', err);
-    }
-  }
-
-  function generarMenuEstructurado(lista: any[], guardar = false) {
+  function generarMenuEstructurado(lista: any[]) {
     if (!lista || lista.length < MINIMO_RECETAS) {
       setMenuSemanal([]);
       return;
@@ -481,21 +429,12 @@ export default function App() {
 
     setMenuSemanal(nuevoMenu);
     setMostrarLista(false);
-    setListaCompra([]);
     setTarjetaVolteada({});
-
-    if (guardar) {
-      guardarMenuEnBD(nuevoMenu, []);
-    }
   }
 
   function cambiarComensales(indexDia: number, cantidad: number) {
     const num = Math.max(1, cantidad);
-    setMenuSemanal(prev => {
-      const actualizado = prev.map((dia, idx) => idx === indexDia ? { ...dia, comensales: num } : dia);
-      guardarMenuEnBD(actualizado, listaCompra);
-      return actualizado;
-    });
+    setMenuSemanal(prev => prev.map((dia, idx) => idx === indexDia ? { ...dia, comensales: num } : dia));
   }
 
   async function guardarOActualizarReceta(e: React.FormEvent) {
@@ -602,7 +541,7 @@ export default function App() {
       limpiarBusqueda();
       setMostrarFormulario(false);
       
-      await inicializarDatosUsuario();
+      await obtenerRecetas();
     } catch (err) {
       console.error('Error al guardar/actualizar receta:', err);
     } finally {
@@ -636,6 +575,7 @@ export default function App() {
       const numComensales = item.comensales || 1;
       const idsDelDia: number[] = [];
 
+      // Solo añadimos los ingredientes si el usuario seleccionó la comida o la cena de este día
       if (configuracionDia.comida) {
         if (item.esUnico && item.platoUnico) {
           idsDelDia.push(item.platoUnico.id);
@@ -708,7 +648,6 @@ export default function App() {
       }));
 
       setListaCompra(resultado);
-      guardarMenuEnBD(menuSemanal, resultado);
     } catch (e) {
       console.error(e);
     } finally {
@@ -717,19 +656,11 @@ export default function App() {
   }
 
   function toggleComprado(index: number) {
-    setListaCompra(prev => {
-      const actualizado = prev.map((item, i) => i === index ? { ...item, comprado: !item.comprado, enCasa: false } : item);
-      guardarMenuEnBD(menuSemanal, actualizado);
-      return actualizado;
-    });
+    setListaCompra(prev => prev.map((item, i) => i === index ? { ...item, comprado: !item.comprado, enCasa: false } : item));
   }
 
   function toggleEnCasa(index: number) {
-    setListaCompra(prev => {
-      const actualizado = prev.map((item, i) => i === index ? { ...item, enCasa: !item.enCasa, comprado: false } : item);
-      guardarMenuEnBD(menuSemanal, actualizado);
-      return actualizado;
-    });
+    setListaCompra(prev => prev.map((item, i) => i === index ? { ...item, enCasa: !item.enCasa, comprado: false } : item));
   }
 
   async function voltearDiaConReceta(dia: string, receta: any, tipo: string) {
@@ -839,10 +770,19 @@ export default function App() {
     <div style={{ minHeight: '100vh', backgroundColor: '#F5F2EB', padding: '24px 16px 80px 16px', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#2C2A29', boxSizing: 'border-box' }}>
       <div style={{ maxWidth: '720px', margin: '0 auto' }}>
         
+        {/* Barra superior de usuario */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFFFFF', padding: '10px 20px', borderRadius: '16px', marginBottom: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: '1px solid #E6DFD3', fontSize: '13px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ position: 'relative', width: '36px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: '22px', display: 'inline-block', transform: 'rotate(-25deg) translateY(2px)', filter: 'drop-shadow(0 2px 2px rgba(0,0,0,0.1))', transformOrigin: 'bottom center' }}>🥑</span>
+              <span style={{ 
+                fontSize: '22px', 
+                display: 'inline-block', 
+                transform: 'rotate(-25deg) translateY(2px)', 
+                filter: 'drop-shadow(0 2px 2px rgba(0,0,0,0.1))',
+                transformOrigin: 'bottom center'
+              }}>
+                🥑
+              </span>
               <div style={{ position: 'absolute', bottom: '1px', left: '6px', width: '20px', height: '3px', backgroundColor: 'rgba(0,0,0,0.08)', borderRadius: '50%' }}></div>
             </div>
 
@@ -855,6 +795,7 @@ export default function App() {
           <button onClick={cerrarSesion} style={{ background: '#FFF1F2', color: '#BE123C', border: '1px solid #FECDD3', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', transition: 'all 0.2s' }}>Cerrar sesión</button>
         </div>
 
+        {/* CONTENEDOR CON ANIMACIÓN DE TRANSICIÓN SUAVE ENTRE PANTALLAS */}
         <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
           <style>{`
             @keyframes fadeIn {
@@ -863,12 +804,22 @@ export default function App() {
             }
           `}</style>
 
+          {/* VISTAS PRINCIPALES SEGÚN PESTAÑA INFERIOR */}
           {pestanaActiva === 'sobre' ? (
             <div style={{ backgroundColor: '#FFFFFF', borderRadius: '20px', padding: '32px 24px', border: '1px solid #E6DFD3', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
               <h2 style={{ margin: '0 0 12px 0', fontSize: '20px', fontWeight: '800', color: '#2C2A29' }}>Sobre MenuKit</h2>
               <p style={{ fontSize: '14px', color: '#57534E', lineHeight: '1.6', margin: '0 0 16px 0' }}>
-                <strong>MenuKit</strong> guarda automáticamente todos tus cambios, estados de la lista de la compra y menús semanales para que todo se mantenga exactamente igual al cerrar y abrir la aplicación.
+                <strong>MenuKit</strong> es tu aplicación personalizada para la planificación de menús semanales y la gestión inteligente de recetas y listas de la compra. Organiza tus comidas de forma equilibrada, controla los comensales y adapta tus menús fácilmente a diferentes dietas.
               </p>
+              <div style={{ backgroundColor: '#F9F8F6', padding: '16px', borderRadius: '12px', border: '1px solid #E7E5E4' }}>
+                <span style={{ fontSize: '12px', fontWeight: '700', color: '#44403C', display: 'block', marginBottom: '6px' }}>Características principales:</span>
+                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px', color: '#57534E', lineHeight: '1.5', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <li>Generación inteligente de menús semanales basados en tus recetas.</li>
+                  <li>Cálculo automático de ingredientes para la lista de la compra según el número de comensales.</li>
+                  <li>Integración con Open Food Facts para buscar información nutricional por supermercados.</li>
+                  <li>Gestión de múltiples dietas personalizadas.</li>
+                </ul>
+              </div>
             </div>
           ) : pestanaActiva === 'dietas' ? (
             <div style={{ backgroundColor: '#FFFFFF', borderRadius: '20px', padding: '24px', border: '1px solid #E6DFD3', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
@@ -897,6 +848,7 @@ export default function App() {
             </div>
           ) : (
             <>
+              {/* Cabecera Principal y Botones de Acción */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div>
@@ -909,7 +861,7 @@ export default function App() {
                   <button onClick={() => { setModoEdicionId(null); setNuevoNombre(''); setNuevaCategoria('primero'); setNuevosPasos(''); setNuevosIngredientes(''); setNuevasCalorias(''); setNuevoAzucar(''); setNuevaSal(''); setMostrarFormulario(!mostrarFormulario); }} style={{ backgroundColor: '#831843', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: 'pointer', fontSize: '13px', boxShadow: '0 2px 4px rgba(131, 24, 67, 0.2)' }}>
                     + Añadir Receta
                   </button>
-                  <button onClick={() => { if (recetas.length >= MINIMO_RECETAS) inicializarDatosUsuario(true); else inicializarDatosUsuario(); }} disabled={cargando || recetas.length < MINIMO_RECETAS} style={{ backgroundColor: recetas.length < MINIMO_RECETAS ? '#D6D3D1' : '#D97706', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: recetas.length < MINIMO_RECETAS ? 'not-allowed' : 'pointer', fontSize: '13px', boxShadow: recetas.length >= MINIMO_RECETAS ? '0 2px 4px rgba(217, 119, 6, 0.25)' : 'none' }}>
+                  <button onClick={() => { if (recetas.length >= MINIMO_RECETAS) generarMenuEstructurado(recetas); else obtenerRecetas(); }} disabled={cargando || recetas.length < MINIMO_RECETAS} style={{ backgroundColor: recetas.length < MINIMO_RECETAS ? '#D6D3D1' : '#D97706', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: recetas.length < MINIMO_RECETAS ? 'not-allowed' : 'pointer', fontSize: '13px', boxShadow: recetas.length >= MINIMO_RECETAS ? '0 2px 4px rgba(217, 119, 6, 0.25)' : 'none' }}>
                     🎲 Regenerar
                   </button>
                   <button onClick={() => setMostrarSelectorCompra(!mostrarSelectorCompra)} disabled={cargando || menuSemanal.length === 0} style={{ backgroundColor: menuSemanal.length === 0 ? '#D6D3D1' : '#14532D', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: menuSemanal.length === 0 ? 'not-allowed' : 'pointer', fontSize: '13px', boxShadow: menuSemanal.length > 0 ? '0 2px 4px rgba(20, 83, 45, 0.25)' : 'none' }}>
@@ -918,6 +870,7 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Selector de Días y Comidas para la Lista de la Compra */}
               {mostrarSelectorCompra && (
                 <div style={{ border: '1px solid #10B981', borderRadius: '20px', padding: '20px 24px', backgroundColor: '#ECFDF5', marginBottom: '24px', boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.05)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -972,11 +925,24 @@ export default function App() {
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                    <button onClick={() => {
+                      // Marcar todos
+                      const todos: any = {};
+                      DIAS_SEMANA.forEach(d => { todos[d] = { comida: true, cena: true }; });
+                      setSeleccionDiasCompra(todos);
+                    }} style={{ background: '#D1FAE5', border: 'none', padding: '8px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', color: '#065F46', cursor: 'pointer' }}>Marcar todos</button>
+                    <button onClick={() => {
+                      // Desmarcar todos
+                      const ninguno: any = {};
+                      DIAS_SEMANA.forEach(d => { ninguno[d] = { comida: false, cena: false }; });
+                      setSeleccionDiasCompra(ninguno);
+                    }} style={{ background: '#FEE2E2', border: 'none', padding: '8px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', color: '#991B1B', cursor: 'pointer' }}>Desmarcar todos</button>
                     <button onClick={generarListaCompra} style={{ backgroundColor: '#10B981', color: '#FFFFFF', border: 'none', padding: '8px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 2px 4px rgba(16,185,129,0.2)' }}>Generar Lista</button>
                   </div>
                 </div>
               )}
 
+              {/* Formulario de Receta */}
               {mostrarFormulario && (
                 <div style={{ border: '1px solid #D6D3D1', borderRadius: '20px', padding: '24px', backgroundColor: '#FFFFFF', marginBottom: '24px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -1053,6 +1019,9 @@ export default function App() {
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                         <label style={{ fontSize: '12px', fontWeight: '600', color: '#44403C' }}>Ingredientes y Cantidades</label>
+                        <span style={{ fontSize: '11px', color: '#57534E', backgroundColor: '#F5F2EB', padding: '2px 8px', borderRadius: '8px', fontWeight: '500' }}>
+                          Formato: <strong>Ingrediente: Cantidad</strong>
+                        </span>
                       </div>
                       <input type="text" value={nuevosIngredientes} onChange={e => setNuevosIngredientes(e.target.value)} placeholder="Ej: patatas: 200g, huevos: 3 unidades" style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '1px solid #D6D3D1', boxSizing: 'border-box', backgroundColor: '#FFFFFF', color: '#2C2A29', fontSize: '13px', outline: 'none' }} />
                     </div>
@@ -1066,11 +1035,17 @@ export default function App() {
                       <button type="submit" disabled={guardandoReceta} style={{ flex: 1, backgroundColor: guardandoReceta ? '#D6D3D1' : '#831843', color: '#fff', border: 'none', padding: '12px', borderRadius: '12px', fontWeight: '600', cursor: 'pointer', fontSize: '14px', boxShadow: '0 2px 4px rgba(131, 24, 67, 0.2)' }}>
                         {guardandoReceta ? 'Guardando...' : (modoEdicionId ? 'Guardar Cambios' : 'Guardar Receta')}
                       </button>
+                      {modoEdicionId && (
+                        <button type="button" onClick={() => { setMostrarFormulario(false); setModoEdicionId(null); }} style={{ backgroundColor: '#F5F2EB', color: '#57534E', border: 'none', padding: '12px 16px', borderRadius: '12px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>
+                          Cancelar
+                        </button>
+                      )}
                     </div>
                   </form>
                 </div>
               )}
 
+              {/* Lista de la Compra */}
               {mostrarLista && (
                 <div style={{ border: '1px solid #A7F3D0', borderRadius: '20px', padding: '20px 24px', backgroundColor: '#F0FDF4', marginBottom: '24px', boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.05)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1090,7 +1065,7 @@ export default function App() {
                       {cargandoCompra ? (
                         <p style={{ margin: 0, color: '#047857', fontSize: '13px' }}>Calculando cantidades según comensales...</p>
                       ) : listaCompra.length === 0 ? (
-                        <p style={{ margin: 0, color: '#047857', fontSize: '13px' }}>No hay elementos en la lista.</p>
+                        <p style={{ margin: 0, color: '#047857', fontSize: '13px' }}>No se encontraron ingredientes para las selecciones de esta semana.</p>
                       ) : (
                         <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           {listaCompra.map((item, idx) => (
@@ -1113,19 +1088,52 @@ export default function App() {
                 </div>
               )}
 
+              {/* Contenido Principal / Menú o Estado inicial */}
               {cargando ? (
-                <div style={{ textAlign: 'center', padding: '60px 0', color: '#78716C', fontWeight: '500' }}>Cargando menú guardado...</div>
+                <div style={{ textAlign: 'center', padding: '60px 0', color: '#78716C', fontWeight: '500' }}>Cargando recetas desde Supabase...</div>
               ) : recetas.length < MINIMO_RECETAS ? (
                 <div style={{ border: '2px dashed #E7E5E4', backgroundColor: '#FFFFFF', borderRadius: '24px', padding: '36px 24px', textAlign: 'center', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
                   <div style={{ fontSize: '32px', marginBottom: '12px' }}>⚡</div>
                   <h3 style={{ margin: '0 0 8px 0', color: '#2C2A29', fontSize: '18px', fontWeight: '700' }}>Dieta en construcción</h3>
                   <p style={{ margin: '0 0 20px 0', fontSize: '14px', color: '#78716C', lineHeight: '1.5', maxWidth: '450px', marginLeft: 'auto', marginRight: 'auto' }}>
-                    Has añadido <strong>{recetas.length}</strong> de las <strong>{MINIMO_RECETAS}</strong> recetas necesarias.
+                    Has añadido <strong>{recetas.length}</strong> de las <strong>{MINIMO_RECETAS}</strong> recetas necesarias para poder generar un menú semanal completo.
                   </p>
                   
-                  <button onClick={() => { setModoEdicionId(null); setNuevoNombre(''); setNuevaCategoria('primero'); setNuevosPasos(''); setNuevosIngredientes(''); setNuevasCalorias(''); setNuevoAzucar(''); setNuevaSal(''); setMostrarFormulario(true); }} style={{ backgroundColor: '#D97706', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '12px', fontWeight: '600', cursor: 'pointer', fontSize: '13px', marginBottom: '24px', boxShadow: '0 2px 4px rgba(217, 119, 6, 0.25)' }}>
-                    + Añadir receta(s) más
+                  <button 
+                    onClick={() => {
+                      setModoEdicionId(null);
+                      setNuevoNombre('');
+                      setNuevaCategoria('primero');
+                      setNuevosPasos('');
+                      setNuevosIngredientes('');
+                      setNuevasCalorias('');
+                      setNuevoAzucar('');
+                      setNuevaSal('');
+                      setMostrarFormulario(true);
+                    }}
+                    style={{ backgroundColor: '#D97706', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '12px', fontWeight: '600', cursor: 'pointer', fontSize: '13px', marginBottom: '24px', boxShadow: '0 2px 4px rgba(217, 119, 6, 0.25)' }}
+                  >
+                    + Añadir {MINIMO_RECETAS - recetas.length} receta(s) más
                   </button>
+
+                  {recetas.length > 0 && (
+                    <div style={{ textAlign: 'left', backgroundColor: '#F9F8F6', borderRadius: '16px', padding: '16px 20px', border: '1px solid #E7E5E4', maxWidth: '500px', margin: '0 auto' }}>
+                      <span style={{ fontSize: '12px', fontWeight: '700', color: '#44403C', display: 'block', marginBottom: '10px' }}>Recetas guardadas en esta dieta:</span>
+                      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {recetas.map(r => (
+                          <li key={r.id} style={{ fontSize: '13px', color: '#2C2A29', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFFFFF', padding: '8px 12px', borderRadius: '10px', border: '1px solid #E7E5E4' }}>
+                            <span style={{ fontWeight: '500', color: '#44403C' }}>
+                              {r.nombre} <span style={{ fontSize: '11px', color: '#78716C', opacity: 0.8 }}>({r.categoria})</span>
+                            </span>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button onClick={(e) => abrirEditorReceta(r, e)} style={{ backgroundColor: '#F5F2EB', color: '#44403C', border: '1px solid #D6D3D1', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Editar</button>
+                              <button onClick={(e) => eliminarReceta(r.id, r.nombre, e)} style={{ backgroundColor: '#FFF1F2', color: '#BE123C', border: '1px solid #FECDD3', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Borrar</button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -1146,7 +1154,15 @@ export default function App() {
                           boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02)'
                         }}>
                           
-                          <div style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', border: '1px solid #E6DFD3', borderRadius: '20px', padding: '20px', backgroundColor: '#FFFFFF' }}>
+                          {/* ANVERSO DE LA TARJETA (MENÚ DEL DÍA) */}
+                          <div style={{
+                            backfaceVisibility: 'hidden',
+                            WebkitBackfaceVisibility: 'hidden',
+                            border: '1px solid #E6DFD3',
+                            borderRadius: '20px',
+                            padding: '20px',
+                            backgroundColor: '#FFFFFF'
+                          }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F5F2EB', paddingBottom: '12px', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
                               <h3 style={{ margin: 0, color: '#2C2A29', fontSize: '16px', fontWeight: '750' }}>{item.dia}</h3>
                               
@@ -1192,7 +1208,24 @@ export default function App() {
                             </div>
                           </div>
 
-                          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)', border: '1px solid #D6D3D1', borderRadius: '20px', padding: '20px', backgroundColor: '#FFFFFF', boxSizing: 'border-box', display: estaVolteada ? 'block' : 'none', overflowY: 'auto' }}>
+                          {/* REVERSO DE LA TARJETA (DETALLES DE LA RECETA SELECCIONADA) */}
+                          <div style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                            backfaceVisibility: 'hidden',
+                            WebkitBackfaceVisibility: 'hidden',
+                            transform: 'rotateY(180deg)',
+                            border: '1px solid #D6D3D1',
+                            borderRadius: '20px',
+                            padding: '20px',
+                            backgroundColor: '#FFFFFF',
+                            boxSizing: 'border-box',
+                            display: estaVolteada ? 'block' : 'none',
+                            overflowY: 'auto'
+                          }}>
                             {infoRecetaActiva && (
                               <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -1209,11 +1242,11 @@ export default function App() {
                                 </div>
 
                                 <div style={{ marginBottom: '12px' }}>
-                                  <strong style={{ fontSize: '12px', color: '#2C2A29', display: 'block', marginBottom: '4px' }}>🥕 Ingredientes:</strong>
+                                  <strong style={{ fontSize: '12px', color: '#2C2A29', display: 'block', marginBottom: '4px' }}>🥕 Ingredientes (base por persona):</strong>
                                   {cargandoIngredientesDia ? (
                                     <p style={{ margin: 0, fontSize: '12px', color: '#78716C' }}>Cargando...</p>
                                   ) : ingredientesRecetaDia.length === 0 ? (
-                                    <p style={{ margin: 0, fontSize: '12px', color: '#78716C' }}>Sin ingredientes.</p>
+                                    <p style={{ margin: 0, fontSize: '12px', color: '#78716C' }}>Sin ingredientes asignados.</p>
                                   ) : (
                                     <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', color: '#44403C', lineHeight: '1.4' }}>
                                       {ingredientesRecetaDia.map((ing, i) => (
@@ -1242,14 +1275,95 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{ position: 'fixed', bottom: 0, left: 0, width: '100%', backgroundColor: '#FFFFFF', borderTop: '1px solid #E6DFD3', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '40px', padding: '6px 0', zIndex: 1000, boxShadow: '0 -4px 10px rgba(0,0,0,0.02)' }}>
-        <button onClick={() => { setPestanaActiva('menu'); setTarjetaVolteada({}); }} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', fontSize: '10px', fontWeight: '600', color: pestanaActiva === 'menu' ? '#831843' : '#78716C', gap: '2px' }}>
+      {/* BARRA DE NAVEGACIÓN INFERIOR PERMANENTE */}
+      <div style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        width: '100%',
+        backgroundColor: '#FFFFFF',
+        borderTop: '1px solid #E6DFD3',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: '40px',
+        padding: '6px 0',
+        zIndex: 1000,
+        boxShadow: '0 -4px 10px rgba(0,0,0,0.02)'
+      }}>
+        {/* 1. Menú Semanal */}
+        <button
+          onClick={() => { setPestanaActiva('menu'); setTarjetaVolteada({}); }}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            fontSize: '10px',
+            fontWeight: '600',
+            color: pestanaActiva === 'menu' ? '#831843' : '#78716C',
+            gap: '2px',
+            transition: 'color 0.2s'
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/>
+            <path d="M7 2v20"/>
+            <path d="M21 15V6a5 5 0 0 0-5 5v4h5z"/>
+            <path d="M21 19H13"/>
+          </svg>
           Menú Semanal
         </button>
-        <button onClick={() => setPestanaActiva('dietas')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', fontSize: '10px', fontWeight: '600', color: pestanaActiva === 'dietas' ? '#831843' : '#78716C', gap: '2px' }}>
+
+        {/* 2. Mis Dietas */}
+        <button
+          onClick={() => setPestanaActiva('dietas')}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            fontSize: '10px',
+            fontWeight: '600',
+            color: pestanaActiva === 'dietas' ? '#831843' : '#78716C',
+            gap: '2px',
+            transition: 'color 0.2s'
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 8v8"/>
+            <path d="M8 12h8"/>
+          </svg>
           Mis Dietas
         </button>
-        <button onClick={() => setPestanaActiva('sobre')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', fontSize: '10px', fontWeight: '600', color: pestanaActiva === 'sobre' ? '#831843' : '#78716C', gap: '2px' }}>
+
+        {/* 3. Sobre MenuKit */}
+        <button
+          onClick={() => setPestanaActiva('sobre')}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            fontSize: '10px',
+            fontWeight: '600',
+            color: pestanaActiva === 'sobre' ? '#831843' : '#78716C',
+            gap: '2px',
+            transition: 'color 0.2s'
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 16v-4"/>
+            <path d="M12 8h.01"/>
+          </svg>
           Sobre MenuKit
         </button>
       </div>
