@@ -131,11 +131,14 @@ export default function App() {
   useEffect(() => {
     if (session) {
       obtenerDietas();
+      obtenerListaCompraGuardada();
     } else {
       setDietas([]);
       setRecetas([]);
       setMenuSemanal([]);
       setDietaSeleccionada(null);
+      setListaCompra([]);
+      setMostrarLista(false);
     }
   }, [session]);
 
@@ -255,6 +258,31 @@ export default function App() {
       if (!error && data) setDietas(data);
     } catch (e) {
       console.error('Error al obtener dietas:', e);
+    }
+  }
+
+  async function obtenerListaCompraGuardada() {
+    if (!session) return;
+    try {
+      const { data, error } = await supabase
+        .from('lista_compra_usuario')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('nombre', { ascending: true });
+
+      if (!error && data && data.length > 0) {
+        const itemsMapeados: ItemCompra[] = data.map(row => ({
+          nombre: row.nombre,
+          cantidadTotal: row.cantidad_total,
+          unidad: row.unidad || '',
+          comprado: row.comprado,
+          enCasa: row.en_casa
+        }));
+        setListaCompra(itemsMapeados);
+        setMostrarLista(true);
+      }
+    } catch (e) {
+      console.error('Error al recuperar lista de compra:', e);
     }
   }
 
@@ -428,7 +456,6 @@ export default function App() {
     });
 
     setMenuSemanal(nuevoMenu);
-    setMostrarLista(false);
     setTarjetaVolteada({});
   }
 
@@ -563,6 +590,7 @@ export default function App() {
   }
 
   async function generarListaCompra() {
+    if (!session) return;
     setCargandoCompra(true);
     setMostrarLista(true);
     setListaMinimizada(false);
@@ -575,7 +603,6 @@ export default function App() {
       const numComensales = item.comensales || 1;
       const idsDelDia: number[] = [];
 
-      // Solo añadimos los ingredientes si el usuario seleccionó la comida o la cena de este día
       if (configuracionDia.comida) {
         if (item.esUnico && item.platoUnico) {
           idsDelDia.push(item.platoUnico.id);
@@ -603,6 +630,8 @@ export default function App() {
     }
 
     try {
+      await supabase.from('lista_compra_usuario').delete().eq('user_id', session.user.id);
+
       const { data: relData } = await supabase
         .from('recetas_ingredientes')
         .select('recetas_id, ingredientes_id, cantidad')
@@ -647,6 +676,17 @@ export default function App() {
         enCasa: false
       }));
 
+      const payloadInserts = resultado.map(item => ({
+        user_id: session.user.id,
+        nombre: item.nombre,
+        cantidad_total: item.cantidadTotal,
+        unidad: item.unidad,
+        comprado: false,
+        en_casa: false
+      }));
+
+      await supabase.from('lista_compra_usuario').insert(payloadInserts);
+
       setListaCompra(resultado);
     } catch (e) {
       console.error(e);
@@ -655,12 +695,36 @@ export default function App() {
     }
   }
 
-  function toggleComprado(index: number) {
-    setListaCompra(prev => prev.map((item, i) => i === index ? { ...item, comprado: !item.comprado, enCasa: false } : item));
+  async function toggleComprado(index: number) {
+    const item = listaCompra[index];
+    const nuevoComprado = !item.comprado;
+    const nuevoEnCasa = false;
+
+    setListaCompra(prev => prev.map((it, i) => i === index ? { ...it, comprado: nuevoComprado, enCasa: nuevoEnCasa } : it));
+
+    if (session) {
+      await supabase
+        .from('lista_compra_usuario')
+        .update({ comprado: nuevoComprado, en_casa: nuevoEnCasa })
+        .eq('user_id', session.user.id)
+        .eq('nombre', item.nombre);
+    }
   }
 
-  function toggleEnCasa(index: number) {
-    setListaCompra(prev => prev.map((item, i) => i === index ? { ...item, enCasa: !item.enCasa, comprado: false } : item));
+  async function toggleEnCasa(index: number) {
+    const item = listaCompra[index];
+    const nuevoEnCasa = !item.enCasa;
+    const nuevoComprado = false;
+
+    setListaCompra(prev => prev.map((it, i) => i === index ? { ...it, enCasa: nuevoEnCasa, comprado: nuevoComprado } : it));
+
+    if (session) {
+      await supabase
+        .from('lista_compra_usuario')
+        .update({ en_casa: nuevoEnCasa, comprado: nuevoComprado })
+        .eq('user_id', session.user.id)
+        .eq('nombre', item.nombre);
+    }
   }
 
   async function voltearDiaConReceta(dia: string, receta: any, tipo: string) {
@@ -926,13 +990,11 @@ export default function App() {
 
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                     <button onClick={() => {
-                      // Marcar todos
                       const todos: any = {};
                       DIAS_SEMANA.forEach(d => { todos[d] = { comida: true, cena: true }; });
                       setSeleccionDiasCompra(todos);
                     }} style={{ background: '#D1FAE5', border: 'none', padding: '8px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', color: '#065F46', cursor: 'pointer' }}>Marcar todos</button>
                     <button onClick={() => {
-                      // Desmarcar todos
                       const ninguno: any = {};
                       DIAS_SEMANA.forEach(d => { ninguno[d] = { comida: false, cena: false }; });
                       setSeleccionDiasCompra(ninguno);
