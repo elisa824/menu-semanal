@@ -435,32 +435,49 @@ export default function App() {
 
       const { data: menuGuardado, error } = await query;
 
+      // Comprobamos si tenemos registros guardados (idealmente los 7 días de la semana)
       if (!error && menuGuardado && menuGuardado.length > 0) {
         const mapaRecetas = new Map(listaRecetas.map(r => [r.id, r]));
         
-        const menuMapeado: DiaMenu[] = menuGuardado.map(row => {
-          return {
-            dia: row.dia,
-            comensales: row.comensales ?? 1,
-            esUnico: row.es_unico ?? false,
-            primero: row.primero_id ? mapaRecetas.get(row.primero_id) || null : null,
-            segundo: row.segundo_id ? mapaRecetas.get(row.segundo_id) || null : null,
-            platoUnico: row.plato_unico_id ? mapaRecetas.get(row.plato_unico_id) || null : null,
-            cena: row.cena_id ? mapaRecetas.get(row.cena_id) || null : null,
-          };
+        const menuMapeado: DiaMenu[] = DIAS_SEMANA.map(diaNombre => {
+          // Buscamos si existe un registro guardado para este día exacto
+          const row = menuGuardado.find((r: any) => r.dia === diaNombre);
+          
+          if (row) {
+            return {
+              dia: row.dia,
+              comensales: row.comensales ?? 1,
+              esUnico: row.es_unico ?? false,
+              primero: row.primero_id ? mapaRecetas.get(row.primero_id) || null : null,
+              segundo: row.segundo_id ? mapaRecetas.get(row.segundo_id) || null : null,
+              platoUnico: row.plato_unico_id ? mapaRecetas.get(row.plato_unico_id) || null : null,
+              cena: row.cena_id ? mapaRecetas.get(row.cena_id) || null : null,
+            };
+          } else {
+            // Si faltase algún día por lo que sea, devolvemos una estructura limpia para ese día
+            return {
+              dia: diaNombre,
+              comensales: 1,
+              esUnico: false,
+              primero: null,
+              segundo: null,
+              platoUnico: null,
+              cena: null,
+            };
+          }
         });
 
-        if (menuMapeado.length > 0) {
-          setMenuSemanal(menuMapeado);
-          return;
-        }
+        // Validamos que al menos tenga contenido cargado para no sobrescribir en blanco
+        setMenuSemanal(menuMapeado);
+        setTarjetaVolteada({});
+        return;
       }
 
-      // Si no hay menú guardado previo, se genera uno nuevo y se guarda
-      generarYGuardarMenuEstructurado(listaRecetas);
+      // Si no hay absolutamente nada guardado previo, generamos uno nuevo y lo persistimos
+      await generarYGuardarMenuEstructurado(listaRecetas);
     } catch (e) {
       console.error('Error al recuperar menú guardado:', e);
-      generarYGuardarMenuEstructurado(listaRecetas);
+      await generarYGuardarMenuEstructurado(listaRecetas);
     }
   }
 
