@@ -23,6 +23,7 @@ interface DiaMenu {
   segundo: any | null;
   platoUnico: any | null;
   cena: any | null;
+  fijado?: boolean; // Nuevo estado para fijar el día
 }
 
 interface ProductoOFF {
@@ -71,7 +72,14 @@ export default function App() {
   const [nuevaDietaNombre, setNuevaDietaNombre] = useState('');
   const [guardandoDieta, setGuardandoDieta] = useState(false);
   
-  const [listaCompra, setListaCompra] = useState<ItemCompra[]>([]);
+  const [listaCompra, setListaCompra] = useState<ItemCompra[]>(() => {
+    // Recuperar lista guardada de la compra si existe
+    const saved = localStorage.getItem('menukit_lista_compra');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { return []; }
+    }
+    return [];
+  });
   const [cargandoCompra, setCargandoCompra] = useState(false);
   const [mostrarLista, setMostrarLista] = useState(false);
   const [listaMinimizada, setListaMinimizada] = useState(false);
@@ -128,23 +136,25 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Guardar lista de la compra en localStorage al cambiar
+  useEffect(() => {
+    localStorage.setItem('menukit_lista_compra', JSON.stringify(listaCompra));
+  }, [listaCompra]);
+
   useEffect(() => {
     if (session) {
       obtenerDietas();
-      obtenerListaCompraGuardada();
     } else {
       setDietas([]);
       setRecetas([]);
       setMenuSemanal([]);
       setDietaSeleccionada(null);
-      setListaCompra([]);
-      setMostrarLista(false);
     }
   }, [session]);
 
   useEffect(() => {
     if (session) {
-      obtenerRecetasYMenu();
+      obtenerRecetas();
     }
   }, [dietaSeleccionada, session]);
 
@@ -261,31 +271,6 @@ export default function App() {
     }
   }
 
-  async function obtenerListaCompraGuardada() {
-    if (!session) return;
-    try {
-      const { data, error } = await supabase
-        .from('lista_compra_usuario')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('nombre', { ascending: true });
-
-      if (!error && data && data.length > 0) {
-        const itemsMapeados: ItemCompra[] = data.map(row => ({
-          nombre: row.nombre,
-          cantidadTotal: row.cantidad_total,
-          unidad: row.unidad || '',
-          comprado: row.comprado,
-          enCasa: row.en_casa
-        }));
-        setListaCompra(itemsMapeados);
-        setMostrarLista(true);
-      }
-    } catch (e) {
-      console.error('Error al recuperar lista de compra:', e);
-    }
-  }
-
   async function crearNuevaDieta(e: React.FormEvent) {
     e.preventDefault();
     if (!nuevaDietaNombre.trim() || guardandoDieta || !session) return;
@@ -334,7 +319,7 @@ export default function App() {
     try {
       const { error } = await supabase.from('recetas').delete().eq('id', id);
       if (!error) {
-        await obtenerRecetasYMenu();
+        await obtenerRecetas();
       }
     } catch (e) {
       console.error('Error al eliminar la receta:', e);
@@ -379,7 +364,7 @@ export default function App() {
     }
   }
 
-  async function obtenerRecetasYMenu() {
+  async function obtenerRecetas() {
     if (!session) return;
     setCargando(true);
     try {
@@ -406,7 +391,7 @@ export default function App() {
       setRecetas(dataRecetas);
       
       if (dataRecetas.length >= MINIMO_RECETAS) {
-        await cargarMenuGuardadoOGenerar(dataRecetas);
+        generarMenuEstructurado(dataRecetas);
       } else {
         setMenuSemanal([]);
       }
@@ -417,86 +402,33 @@ export default function App() {
     }
   }
 
-  async function cargarMenuGuardadoOGenerar(listaRecetas: any[]) {
-    if (!session) return;
-    try {
-      const dietaIdFiltro = dietaSeleccionada ? dietaSeleccionada.id : null;
-      
-      let query = supabase
-        .from('menu_semanal_usuario')
-        .select('*')
-        .eq('user_id', session.user.id);
-
-      if (dietaIdFiltro) {
-        query = query.eq('dieta_id', dietaIdFiltro);
-      } else {
-        query = query.is('dieta_id', null);
-      }
-
-      const { data: menuGuardado, error } = await query;
-
-      // Comprobamos si tenemos registros guardados (idealmente los 7 días de la semana)
-      if (!error && menuGuardado && menuGuardado.length > 0) {
-        const mapaRecetas = new Map(listaRecetas.map(r => [r.id, r]));
-        
-        const menuMapeado: DiaMenu[] = DIAS_SEMANA.map(diaNombre => {
-          // Buscamos si existe un registro guardado para este día exacto
-          const row = menuGuardado.find((r: any) => r.dia === diaNombre);
-          
-          if (row) {
-            return {
-              dia: row.dia,
-              comensales: row.comensales ?? 1,
-              esUnico: row.es_unico ?? false,
-              primero: row.primero_id ? mapaRecetas.get(row.primero_id) || null : null,
-              segundo: row.segundo_id ? mapaRecetas.get(row.segundo_id) || null : null,
-              platoUnico: row.plato_unico_id ? mapaRecetas.get(row.plato_unico_id) || null : null,
-              cena: row.cena_id ? mapaRecetas.get(row.cena_id) || null : null,
-            };
-          } else {
-            // Si faltase algún día por lo que sea, devolvemos una estructura limpia para ese día
-            return {
-              dia: diaNombre,
-              comensales: 1,
-              esUnico: false,
-              primero: null,
-              segundo: null,
-              platoUnico: null,
-              cena: null,
-            };
-          }
-        });
-
-        // Validamos que al menos tenga contenido cargado para no sobrescribir en blanco
-        setMenuSemanal(menuMapeado);
-        setTarjetaVolteada({});
-        return;
-      }
-
-      // Si no hay absolutamente nada guardado previo, generamos uno nuevo y lo persistimos
-      await generarYGuardarMenuEstructurado(listaRecetas);
-    } catch (e) {
-      console.error('Error al recuperar menú guardado:', e);
-      await generarYGuardarMenuEstructurado(listaRecetas);
-    }
-  }
-
   function norm(str: any) {
     if (!str || typeof str !== 'string') return '';
     return str.toLowerCase().replace(/_/g, ' ').trim();
   }
 
-  async function generarYGuardarMenuEstructurado(lista: any[], forzarBool = false) {
+  function generarMenuEstructurado(lista: any[]) {
     if (!lista || lista.length < MINIMO_RECETAS) {
       setMenuSemanal([]);
       return;
     }
 
-    if (forzarBool) {
-      console.log("Forzando regeneración de menú...");
-    }
-
     const usadosEnLaSemana = new Set<number>();
+    
+    // Mantener los días que ya están fijados
+    const menuActualMap = new Map<string, DiaMenu>();
+    menuSemanal.forEach(item => {
+      if (item.fijado) {
+        menuActualMap.set(item.dia, item);
+        if (item.esUnico && item.platoUnico) usadosEnLaSemana.add(item.platoUnico.id);
+        if (!item.esUnico) {
+          if (item.primero) usadosEnLaSemana.add(item.primero.id);
+          if (item.segundo) usadosEnLaSemana.add(item.segundo.id);
+        }
+        if (item.cena) usadosEnLaSemana.add(item.cena.id);
+      }
+    });
+
     const primeros = lista.filter(r => norm(r.categoria) === 'primero' || norm(r.categoria) === 'primeros');
     const segundos = lista.filter(r => norm(r.categoria) === 'segundo' || norm(r.categoria) === 'segundos');
     const platosUnicos = lista.filter(r => norm(r.categoria).includes('unico'));
@@ -511,6 +443,9 @@ export default function App() {
     };
 
     const nuevoMenu: DiaMenu[] = DIAS_SEMANA.map(dia => {
+      if (menuActualMap.has(dia)) {
+        return menuActualMap.get(dia)!;
+      }
       const esUnico = platosUnicos.some(r => !usadosEnLaSemana.has(r.id)) && Math.random() < 0.5;
       return {
         dia,
@@ -519,72 +454,27 @@ export default function App() {
         primero: esUnico ? null : tomarSinRepetir(primeros),
         segundo: esUnico ? null : tomarSinRepetir(segundos),
         platoUnico: esUnico ? tomarSinRepetir(platosUnicos) : null,
-        cena: tomarSinRepetir(cenas)
+        cena: tomarSinRepetir(cenas),
+        fijado: false
       };
     });
 
     setMenuSemanal(nuevoMenu);
     setTarjetaVolteada({});
-
-    if (session) {
-      try {
-        const dietaIdFiltro = dietaSeleccionada ? dietaSeleccionada.id : null;
-
-        let deleteQuery = supabase
-          .from('menu_semanal_usuario')
-          .delete()
-          .eq('user_id', session.user.id);
-
-        if (dietaIdFiltro) {
-          deleteQuery = deleteQuery.eq('dieta_id', dietaIdFiltro);
-        } else {
-          deleteQuery = deleteQuery.is('dieta_id', null);
-        }
-
-        await deleteQuery;
-
-        const payload = nuevoMenu.map(d => ({
-          user_id: session.user.id,
-          dieta_id: dietaIdFiltro,
-          dia: d.dia,
-          comensales: d.comensales,
-          es_unico: d.esUnico,
-          primero_id: d.primero?.id || null,
-          segundo_id: d.segundo?.id || null,
-          plato_unico_id: d.platoUnico?.id || null,
-          cena_id: d.cena?.id || null
-        }));
-
-        await supabase.from('menu_semanal_usuario').insert(payload);
-      } catch (err) {
-        console.error('Error al guardar el menú en Supabase:', err);
-      }
-    }
   }
 
-  async function cambiarComensales(indexDia: number, cantidad: number) {
-    const num = Math.max(1, cantidad);
-    const menuActualizado = menuSemanal.map((dia, idx) => idx === indexDia ? { ...dia, comensales: num } : dia);
-    setMenuSemanal(menuActualizado);
-
-    if (session) {
-      const itemDia = menuActualizado[indexDia];
-      const dietaIdFiltro = dietaSeleccionada ? dietaSeleccionada.id : null;
-
-      let query = supabase
-        .from('menu_semanal_usuario')
-        .update({ comensales: num })
-        .eq('user_id', session.user.id)
-        .eq('dia', itemDia.dia);
-
-      if (dietaIdFiltro) {
-        query = query.eq('dieta_id', dietaIdFiltro);
-      } else {
-        query = query.is('dieta_id', null);
+  function toggleFijarDia(diaNombre: string) {
+    setMenuSemanal(prev => prev.map(item => {
+      if (item.dia === diaNombre) {
+        return { ...item, fijado: !item.fijado };
       }
+      return item;
+    }));
+  }
 
-      await query;
-    }
+  function cambiarComensales(indexDia: number, cantidad: number) {
+    const num = Math.max(1, cantidad);
+    setMenuSemanal(prev => prev.map((dia, idx) => idx === indexDia ? { ...dia, comensales: num } : dia));
   }
 
   async function guardarOActualizarReceta(e: React.FormEvent) {
@@ -691,7 +581,7 @@ export default function App() {
       limpiarBusqueda();
       setMostrarFormulario(false);
       
-      await obtenerRecetasYMenu();
+      await obtenerRecetas();
     } catch (err) {
       console.error('Error al guardar/actualizar receta:', err);
     } finally {
@@ -713,7 +603,6 @@ export default function App() {
   }
 
   async function generarListaCompra() {
-    if (!session) return;
     setCargandoCompra(true);
     setMostrarLista(true);
     setListaMinimizada(false);
@@ -753,8 +642,6 @@ export default function App() {
     }
 
     try {
-      await supabase.from('lista_compra_usuario').delete().eq('user_id', session.user.id);
-
       const { data: relData } = await supabase
         .from('recetas_ingredientes')
         .select('recetas_id, ingredientes_id, cantidad')
@@ -799,17 +686,6 @@ export default function App() {
         enCasa: false
       }));
 
-      const payloadInserts = resultado.map(item => ({
-        user_id: session.user.id,
-        nombre: item.nombre,
-        cantidad_total: item.cantidadTotal,
-        unidad: item.unidad,
-        comprado: false,
-        en_casa: false
-      }));
-
-      await supabase.from('lista_compra_usuario').insert(payloadInserts);
-
       setListaCompra(resultado);
     } catch (e) {
       console.error(e);
@@ -818,36 +694,12 @@ export default function App() {
     }
   }
 
-  async function toggleComprado(index: number) {
-    const item = listaCompra[index];
-    const nuevoComprado = !item.comprado;
-    const nuevoEnCasa = false;
-
-    setListaCompra(prev => prev.map((it, i) => i === index ? { ...it, comprado: nuevoComprado, enCasa: nuevoEnCasa } : it));
-
-    if (session) {
-      await supabase
-        .from('lista_compra_usuario')
-        .update({ comprado: nuevoComprado, en_casa: nuevoEnCasa })
-        .eq('user_id', session.user.id)
-        .eq('nombre', item.nombre);
-    }
+  function toggleComprado(index: number) {
+    setListaCompra(prev => prev.map((item, i) => i === index ? { ...item, comprado: !item.comprado, enCasa: false } : item));
   }
 
-  async function toggleEnCasa(index: number) {
-    const item = listaCompra[index];
-    const nuevoEnCasa = !item.enCasa;
-    const nuevoComprado = false;
-
-    setListaCompra(prev => prev.map((it, i) => i === index ? { ...it, enCasa: nuevoEnCasa, comprado: nuevoComprado } : it));
-
-    if (session) {
-      await supabase
-        .from('lista_compra_usuario')
-        .update({ en_casa: nuevoEnCasa, comprado: nuevoComprado })
-        .eq('user_id', session.user.id)
-        .eq('nombre', item.nombre);
-    }
+  function toggleEnCasa(index: number) {
+    setListaCompra(prev => prev.map((item, i) => i === index ? { ...item, enCasa: !item.enCasa, comprado: false } : item));
   }
 
   async function voltearDiaConReceta(dia: string, receta: any, tipo: string) {
@@ -921,7 +773,7 @@ export default function App() {
               {esRegistro ? 'Crea tu cuenta' : '¡Bienvenido a MenuKit!'}
             </h2>
             <p style={{ fontSize: '14px', color: '#78716C', margin: 0 }}>
-              {esRegistro ? 'Regístrate para guardar tus recetas y planes.' : 'Inicia sesión para acceder à tu menú semanal.'}
+              {esRegistro ? 'Regístrate para guardar tus recetas y planes.' : 'Inicia sesión para acceder a tu menú semanal.'}
             </p>
           </div>
 
@@ -1048,7 +900,7 @@ export default function App() {
                   <button onClick={() => { setModoEdicionId(null); setNuevoNombre(''); setNuevaCategoria('primero'); setNuevosPasos(''); setNuevosIngredientes(''); setNuevasCalorias(''); setNuevoAzucar(''); setNuevaSal(''); setMostrarFormulario(!mostrarFormulario); }} style={{ backgroundColor: '#831843', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: 'pointer', fontSize: '13px', boxShadow: '0 2px 4px rgba(131, 24, 67, 0.2)' }}>
                     + Añadir Receta
                   </button>
-                  <button onClick={() => { if (recetas.length >= MINIMO_RECETAS) generarYGuardarMenuEstructurado(recetas, true); else obtenerRecetasYMenu(); }} disabled={cargando || recetas.length < MINIMO_RECETAS} style={{ backgroundColor: recetas.length < MINIMO_RECETAS ? '#D6D3D1' : '#D97706', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: recetas.length < MINIMO_RECETAS ? 'not-allowed' : 'pointer', fontSize: '13px', boxShadow: recetas.length >= MINIMO_RECETAS ? '0 2px 4px rgba(217, 119, 6, 0.25)' : 'none' }}>
+                  <button onClick={() => { if (recetas.length >= MINIMO_RECETAS) generarMenuEstructurado(recetas); else obtenerRecetas(); }} disabled={cargando || recetas.length < MINIMO_RECETAS} style={{ backgroundColor: recetas.length < MINIMO_RECETAS ? '#D6D3D1' : '#D97706', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: recetas.length < MINIMO_RECETAS ? 'not-allowed' : 'pointer', fontSize: '13px', boxShadow: recetas.length >= MINIMO_RECETAS ? '0 2px 4px rgba(217, 119, 6, 0.25)' : 'none' }}>
                     🎲 Regenerar
                   </button>
                   <button onClick={() => setMostrarSelectorCompra(!mostrarSelectorCompra)} disabled={cargando || menuSemanal.length === 0} style={{ backgroundColor: menuSemanal.length === 0 ? '#D6D3D1' : '#14532D', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '12px', fontWeight: '600', cursor: menuSemanal.length === 0 ? 'not-allowed' : 'pointer', fontSize: '13px', boxShadow: menuSemanal.length > 0 ? '0 2px 4px rgba(20, 83, 45, 0.25)' : 'none' }}>
@@ -1343,13 +1195,36 @@ export default function App() {
                           <div style={{
                             backfaceVisibility: 'hidden',
                             WebkitBackfaceVisibility: 'hidden',
-                            border: '1px solid #E6DFD3',
+                            border: item.fijado ? '2px solid #D97706' : '1px solid #E6DFD3',
                             borderRadius: '20px',
                             padding: '20px',
-                            backgroundColor: '#FFFFFF'
+                            backgroundColor: item.fijado ? '#FFFBEB' : '#FFFFFF'
                           }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F5F2EB', paddingBottom: '12px', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
-                              <h3 style={{ margin: 0, color: '#2C2A29', fontSize: '16px', fontWeight: '750' }}>{item.dia}</h3>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <h3 style={{ margin: 0, color: '#2C2A29', fontSize: '16px', fontWeight: '750' }}>{item.dia}</h3>
+                                {/* Botón de Fijar Día */}
+                                <button 
+                                  onClick={() => toggleFijarDia(item.dia)}
+                                  title={item.fijado ? "Día fijado (no cambiará al regenerar)" : "Fijar este día"}
+                                  style={{
+                                    background: item.fijado ? '#D97706' : '#F5F2EB',
+                                    color: item.fijado ? '#FFFFFF' : '#78716C',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    transition: 'all 0.2s'
+                                  }}
+                                >
+                                  📌 {item.fijado ? 'Fijado' : 'Fijar'}
+                                </button>
+                              </div>
                               
                               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <div style={{ fontSize: '11px', fontWeight: '600', backgroundColor: '#F9F8F6', color: '#57534E', padding: '4px 10px', borderRadius: '8px', border: '1px solid #E7E5E4' }}>
