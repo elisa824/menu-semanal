@@ -1107,9 +1107,9 @@ export default function App() {
                         <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           {listaCompra.map((item, idx) => (
                             <li key={idx} style={{ fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFFFFF', padding: '10px 14px', borderRadius: '12px', border: '1px solid #D1FAE5', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden', flex: 1, marginRight: '10px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, marginRight: '10px', minWidth: 0 }}>
                                 <input type="checkbox" checked={item.comprado} onChange={() => toggleComprado(idx)} style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: '#14532D', flexShrink: 0 }} />
-                                <span style={{ textDecoration: (item.comprado || item.enCasa) ? 'line-through' : 'none', color: item.comprado ? '#14532D' : item.enCasa ? '#A8A29E' : '#064E3B', fontWeight: item.enCasa ? 'normal' : '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                <span style={{ textDecoration: (item.comprado || item.enCasa) ? 'line-through' : 'none', color: item.comprado ? '#14532D' : item.enCasa ? '#A8A29E' : '#064E3B', fontWeight: item.enCasa ? 'normal' : '500', whiteSpace: 'normal', wordBreak: 'break-word', flex: 1 }}>
                                   {item.nombre}
                                   {item.cantidadTotal !== null && <strong style={{ marginLeft: '4px', color: '#047857' }}>({item.cantidadTotal})</strong>}
                                   {item.unidad && <span style={{ fontSize: '11px', color: '#059669', marginLeft: '3px' }}>{item.unidad}</span>}
@@ -1290,7 +1290,11 @@ export default function App() {
                               <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <span style={{ fontSize: '11px', backgroundColor: '#F5F2EB', color: '#57534E', padding: '3px 8px', borderRadius: '6px', fontWeight: '700', textTransform: 'uppercase' }}>{infoRecetaActiva.tipo}</span>
-                                  <button onClick={() => volverAlMenuDia(item.dia)} style={{ backgroundColor: '#F5F2EB', color: '#44403C', border: '1px solid #D6D3D1', padding: '4px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>↩ Volver al menú</button>
+                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button onClick={(e) => abrirEditorReceta(infoRecetaActiva.receta, e)} style={{ backgroundColor: '#F5F2EB', color: '#44403C', border: '1px solid #D6D3D1', padding: '4px 8px', borderRadius: '8px', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Editar</button>
+                                    <button onClick={(e) => eliminarReceta(infoRecetaActiva.receta.id, infoRecetaActiva.receta.nombre, e)} style={{ backgroundColor: '#FFF1F2', color: '#BE123C', border: '1px solid #FECDD3', padding: '4px 8px', borderRadius: '8px', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Borrar</button>
+                                    <button onClick={() => volverAlMenuDia(item.dia)} style={{ backgroundColor: '#F5F2EB', color: '#44403C', border: '1px solid #D6D3D1', padding: '4px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>↩ Volver</button>
+                                  </div>
                                 </div>
 
                                 <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: '750', color: '#2C2A29' }}>📖 {infoRecetaActiva.receta.nombre}</h3>
